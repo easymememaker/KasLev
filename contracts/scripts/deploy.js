@@ -1,4 +1,7 @@
-const { ethers } = require('hardhat');
+const fs = require('fs');
+const path = require('path');
+const hre = require('hardhat');
+const { ethers } = hre;
 
 /**
  * KasLev deployment script.
@@ -63,6 +66,13 @@ async function main() {
   await (await registry.listAsset('KAS', 1_000_000)).wait();
   console.log('Listed market: KAS (max leverage 1,000,000x)');
 
+  // 6b. Configure the keeper funding fee (flat KAS charged on open -> keeperWallet).
+  //     Funds ongoing oracle updates + liquidations so the protocol self-sustains.
+  const keeperWallet = process.env.KEEPER_WALLET || devFeeWallet;
+  const keeperFeeKas = process.env.KEEPER_FEE_KAS || '0.1';
+  await (await perps.setKeeperConfig(keeperWallet, ethers.parseEther(keeperFeeKas))).wait();
+  console.log(`Keeper fee: ${keeperFeeKas} KAS/open -> ${keeperWallet}`);
+
   // 7. Optionally deposit the developer seed now.
   if ((process.env.DEPOSIT_SEED || '').toLowerCase() === 'true') {
     await (await vault.depositInitialLiquidity({ value: ethers.parseEther(seedKas.toString()) })).wait();
@@ -70,6 +80,37 @@ async function main() {
   } else {
     console.log('Seed NOT deposited (set DEPOSIT_SEED=true to deposit at deploy time).');
   }
+
+  // 8. Write a machine-readable deployment record (consumed by the keeper + frontend).
+  const record = {
+    network: hre.network.name,
+    chainId: Number((await ethers.provider.getNetwork()).chainId),
+    rpc: process.env.KASPA_L2_RPC_URL || 'https://rpc.kasplextest.xyz',
+    explorer: 'https://explorer.testnet.kasplextest.xyz',
+    nativeCurrency: 'KAS',
+    deployedAt: new Date().toISOString().slice(0, 10),
+    deployer: deployer.address,
+    contracts: {
+      KasLevOracle: await oracle.getAddress(),
+      KasLevAssetRegistry: await registry.getAddress(),
+      KasLevVault: await vault.getAddress(),
+      KasLevPerps: await perps.getAddress(),
+    },
+    config: {
+      developer,
+      devFeeWallet,
+      keeperWallet,
+      keeperFeeKas,
+      seedKas: seedKas.toString(),
+      lockDays: lockDays.toString(),
+      markets: [{ symbol: 'KAS', maxLeverage: 1000000 }],
+    },
+  };
+  const outDir = path.join(__dirname, '..', 'deployments');
+  fs.mkdirSync(outDir, { recursive: true });
+  const outFile = path.join(outDir, hre.network.name + '.json');
+  fs.writeFileSync(outFile, JSON.stringify(record, null, 2) + '\n');
+  console.log('Wrote deployment record:', outFile);
 
   console.log('\nDeployment complete.');
 }

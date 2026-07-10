@@ -256,4 +256,26 @@ describe('KasLevPerps — trading', () => {
     const { openFee } = await perps.quoteOpenCost(100, margin);
     expect(openFee).to.equal(ethers.parseEther('5')); // 5% of 100
   });
+
+  it('charges a configurable keeper fee on open, routed to the keeper wallet', async () => {
+    const { perps, owner, keeper, trader } = await loadFixture(deployFixture);
+    const kFee = ethers.parseEther('0.1');
+    await perps.connect(owner).setKeeperConfig(keeper.address, kFee);
+
+    const margin = ethers.parseEther('100');
+    const q = await perps.quoteOpenCost(10, margin);
+    expect(q.keeperFee_).to.equal(kFee);
+    expect(q.total).to.equal(margin + q.openFee + kFee); // margin + 1% + keeper fee
+
+    const keeperBefore = await ethers.provider.getBalance(keeper.address);
+    await perps.connect(trader).openPosition(KAS_ID, 10, true, margin, { value: q.total });
+    expect(await ethers.provider.getBalance(keeper.address)).to.equal(keeperBefore + kFee);
+  });
+
+  it('rejects a keeper fee above the MAX_KEEPER_FEE cap', async () => {
+    const { perps, owner, keeper } = await loadFixture(deployFixture);
+    await expect(
+      perps.connect(owner).setKeeperConfig(keeper.address, ethers.parseEther('6')),
+    ).to.be.revertedWithCustomError(perps, 'KeeperFeeTooHigh');
+  });
 });

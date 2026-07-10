@@ -1,0 +1,30 @@
+{
+  "network": "kasplexTestnet",
+  "chainId": 167012,
+  "rpc": "https://rpc.kasplextest.xyz",
+  "explorer": "https://explorer.testnet.kasplextest.xyz",
+  "nativeCurrency": "KAS",
+  "deployedAt": "2026-07-10",
+  "deployer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+  "contracts": {
+    "KasLevOracle": "0xD4615AA4b4A8134A65F8a003B77E1CD38d5c268f",
+    "KasLevAssetRegistry": "0x3bAaF0d31105aa0D92eF3DA1d7574c4EDB70d90a",
+    "KasLevVault": "0xabD3bF3fd4EF65766753b1B4Eb924a4792d56Fb7",
+    "KasLevPerps": "0x5fF6E0A7eFa4eb23a42855Fb05bDd6802fb98157"
+  },
+  "config": {
+    "developer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "devFeeWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "keeperWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "keeperFeeKas": "0.15",
+    "seedKas": "7.0",
+    "lockDays": "100",
+    "markets": [
+      {
+        "symbol": "KAS",
+        "maxLeverage": 1000000
+      }
+    ]
+  },
+  "notes": "Testnet deployment with keeper fee (0.15 KAS/open). Not audited — testnet only."
+}

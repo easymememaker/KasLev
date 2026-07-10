@@ -61,6 +61,19 @@ The fee tiers and liquidation formula are a 1:1 match of the app's `src/utils/ma
 Fees are charged on **margin** (not notional), matching the app. Every tier is hard-capped
 at 10% (`MAX_FEE_BPS`) so the owner can never set a predatory rate.
 
+### Keeper fee (self-funding the oracle & liquidations)
+
+On top of the developer trading fee, each position **open** pays a small flat **keeper fee**
+(KAS) routed to `keeperWallet`. This is *not* developer profit — it reimburses the gas of the
+two ongoing keeper jobs (oracle price updates + liquidations) so the protocol sustains itself.
+It is a transparent parameter: publicly readable (`keeperFee`), hard-capped at
+`MAX_KEEPER_FEE` (5 KAS), and every change emits `KeeperConfigUpdated`. Set it via
+`setKeeperConfig(keeperWallet, keeperFee)`; `quoteOpenCost` returns it so the UI shows the full
+cost up front.
+
+Measured on Kasplex testnet, one oracle update costs ~0.07 KAS of gas and a liquidation
+~0.16 KAS — both far below the trading fees a market of any real size generates.
+
 ### PnL & liquidation
 
 ```
@@ -104,6 +117,25 @@ npm run deploy -- --network kaspaL2Testnet
 | `DEPOSIT_SEED` | `false` | Deposit the seed during deploy |
 
 ---
+
+## Keeper bot
+
+`scripts/keeper.js` runs the two public keeper jobs against a deployment (addresses read from
+`deployments/<network>.json`):
+
+1. **Oracle upkeep** — pushes the live KAS price on-chain each cycle (reporter key required).
+2. **Liquidations** — scans every open position and liquidates any that crossed maintenance
+   margin (permissionless — anyone can run this).
+
+```bash
+# one cycle then exit
+KEEPER_ONCE=true npm run keeper
+# continuous (default 30s interval; override with KEEPER_INTERVAL_MS)
+npm run keeper
+```
+
+The keeper's gas is funded by the on-chain keeper fee described above, making the loop
+economically self-sustaining once trading volume exists.
 
 ## Security notes & honest caveats
 

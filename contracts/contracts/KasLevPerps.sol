@@ -55,6 +55,8 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant BPS_DENOMINATOR = 10_000;
     /// @notice Absolute ceiling on any fee tier (10%). A transparency guard against abuse.
     uint256 public constant MAX_FEE_BPS = 1_000;
+    /// @notice Hard cap on the flat keeper fee (5 KAS). Anti-abuse transparency guard.
+    uint256 public constant MAX_KEEPER_FEE = 5e18;
     /// @notice Precision used for USD prices and internal ratio math.
     uint256 private constant PRICE_SCALE = 1e18;
 
@@ -66,6 +68,16 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
 
     /// @notice Wallet that receives all developer trading fees. Configurable, event-logged.
     address public devFeeWallet;
+
+    /// @notice Wallet that funds ongoing keeper work (oracle price updates + liquidations).
+    address public keeperWallet;
+
+    /// @notice Flat KAS fee (wei) charged on every position open, routed to `keeperWallet`.
+    /// @dev Makes the protocol self-sustaining for keeper gas ("the extra ~1x gas each user
+    ///      pays keeps the oracle alive"). Transparent: publicly readable, capped by
+    ///      MAX_KEEPER_FEE, and every change emits {KeeperConfigUpdated}. Distinct from the
+    ///      developer trading fee — it is not developer profit, it is operational funding.
+    uint256 public keeperFee;
 
     // --------------------------- Risk parameters --------------------------
 
@@ -122,6 +134,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
 
     event OracleUpdated(address indexed oracle);
     event DevFeeWalletUpdated(address indexed wallet);
+    event KeeperConfigUpdated(address indexed keeperWallet, uint256 keeperFee);
     event RiskParamsUpdated(uint256 maintenanceMarginBps, uint256 maxLeverage, uint256 minMargin, uint256 maxMargin, uint256 maxPriceAge);
     event FeeScheduleUpdated(
         uint256 stdMaxLeverage,
@@ -168,6 +181,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     error AlreadyClosed();
     error NotLiquidatable();
     error FeeTooHigh();
+    error KeeperFeeTooHigh();
     error InvalidTierOrder();
 
     // ---------------------------- Construction ----------------------------
@@ -186,6 +200,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         registry = IKasLevAssetRegistry(registry_);
         oracle = IPriceOracle(oracle_);
         devFeeWallet = devFeeWallet_;
+        keeperWallet = devFeeWallet_; // defaults to dev; keeperFee starts at 0 until configured
     }
 
     // ------------------------- Admin (transparent) ------------------------
@@ -200,6 +215,20 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         if (wallet == address(0)) revert ZeroAddress();
         devFeeWallet = wallet;
         emit DevFeeWalletUpdated(wallet);
+    }
+
+    /**
+     * @notice Configure the keeper funding fee and destination wallet.
+     * @dev The fee is a flat KAS amount added on top of margin + trading fee at open, sent
+     *      to `keeperWallet` to reimburse the gas of oracle updates and liquidations. Capped
+     *      at MAX_KEEPER_FEE so it can never become a hidden or predatory charge.
+     */
+    function setKeeperConfig(address keeperWallet_, uint256 keeperFee_) external onlyOwner {
+        if (keeperWallet_ == address(0)) revert ZeroAddress();
+        if (keeperFee_ > MAX_KEEPER_FEE) revert KeeperFeeTooHigh();
+        keeperWallet = keeperWallet_;
+        keeperFee = keeperFee_;
+        emit KeeperConfigUpdated(keeperWallet_, keeperFee_);
     }
 
     function setRiskParams(
@@ -287,7 +316,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
      * @param leverage Position leverage (1 .. min(maxLeverage, asset cap)).
      * @param isLong   true = LONG, false = SHORT.
      * @param margin   Collateral in KAS (wei). The developer open fee is charged on top,
-     *                 so msg.value must be at least `margin + openFee`. Any excess is refunded.
+     *                 so msg.value must be at least `margin + openFee + keeperFee`. Excess is refunded.
      */
     function openPosition(bytes32 assetId, uint256 leverage, bool isLong, uint256 margin)
         external
@@ -305,7 +334,8 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
 
         uint16 feeBps = getFeeBps(leverage);
         uint256 openFee = (margin * feeBps) / BPS_DENOMINATOR;
-        uint256 required = margin + openFee;
+        uint256 kFee = keeperFee;
+        uint256 required = margin + openFee + kFee;
         if (msg.value < required) revert InsufficientValue();
 
         uint256 entryPrice = _freshPrice(assetId);
@@ -328,6 +358,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         // 1) escrow margin in the vault, 2) pay open fee to the dev wallet, 3) refund dust.
         vault.depositMargin{value: margin}(msg.sender);
         if (openFee > 0) payable(devFeeWallet).sendValue(openFee);
+        if (kFee > 0) payable(keeperWallet).sendValue(kFee);
         uint256 refund = msg.value - required;
         if (refund > 0) payable(msg.sender).sendValue(refund);
 
@@ -419,10 +450,15 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         return traderPositions[trader];
     }
 
-    /// @notice Preview the KAS required (margin + open fee) to open a position.
-    function quoteOpenCost(uint256 leverage, uint256 margin) external view returns (uint256 openFee, uint256 total) {
+    /// @notice Preview the KAS required (margin + open fee + keeper fee) to open a position.
+    function quoteOpenCost(uint256 leverage, uint256 margin)
+        external
+        view
+        returns (uint256 openFee, uint256 keeperFee_, uint256 total)
+    {
         openFee = (margin * getFeeBps(leverage)) / BPS_DENOMINATOR;
-        total = margin + openFee;
+        keeperFee_ = keeperFee;
+        total = margin + openFee + keeperFee_;
     }
 
     // ---------------------------- Internal math ---------------------------
