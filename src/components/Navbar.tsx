@@ -485,7 +485,7 @@ export default function Navbar({
         </nav>
 
         {/* Network & Wallet Controls */}
-        <div className="flex flex-wrap items-center gap-3 justify-end w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-3 justify-start md:justify-end w-full md:w-auto">
           {/* Theme Toggle */}
           <button
             id="theme-contrast-toggle"

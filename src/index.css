@@ -38,9 +38,57 @@
 @layer base {
   body {
     background-color: var(--theme-bg-darker);
+    /* Subtle depth: a faint accent glow at the top instead of a flat fill. */
+    background-image: radial-gradient(
+      1100px 560px at 50% -12%,
+      color-mix(in srgb, var(--theme-kaspa) 7%, transparent),
+      transparent 68%
+    );
+    background-attachment: fixed;
     color: #f1f5f9;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular figures so live prices/numbers don't jitter as digits change. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin, on-theme scrollbars (default chrome scrollbars look cheap on dark UIs). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--theme-border-dark) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--theme-border-dark);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--theme-kaspa) 55%, var(--theme-border-dark));
+    background-clip: padding-box;
+  }
+
+  /* Keyboard focus ring in the brand accent (accessibility + polish). */
+  :focus-visible {
+    outline: 2px solid var(--theme-kaspa);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--theme-kaspa) 30%, transparent);
+    color: #ffffff;
   }
 }
 
