@@ -273,7 +273,7 @@ export default function TradingView({
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 p-4 max-w-7xl mx-auto" id="trading-terminal-grid">
       
       {/* 24H TICKER STATS (SPAN 12) */}
-      <div className="col-span-12 bg-bg-dark rounded-xl border border-border-dark px-4 py-3 flex flex-wrap justify-between items-center gap-4 text-xs font-mono" id="live-ticker-banner">
+      <div className="lg:col-span-12 bg-bg-dark rounded-xl border border-border-dark px-4 py-3 flex flex-wrap justify-between items-center gap-4 text-xs font-mono" id="live-ticker-banner">
         <div className="flex items-center gap-4">
           <div className="relative">
             <select
@@ -313,7 +313,7 @@ export default function TradingView({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 flex-1 justify-end max-w-2xl">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full lg:flex-1 lg:justify-end lg:max-w-2xl">
           <div className="text-right">
             <span className="text-gray-400 block text-[10px]">24h Change</span>
             <span className={`text-xs font-bold ${activeToken.change24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
