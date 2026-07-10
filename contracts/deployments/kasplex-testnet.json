@@ -1,0 +1,23 @@
+{
+  "network": "Kasplex zkEVM Testnet",
+  "chainId": 167012,
+  "rpc": "https://rpc.kasplextest.xyz",
+  "explorer": "https://explorer.testnet.kasplextest.xyz",
+  "nativeCurrency": "KAS",
+  "deployedAt": "2026-07-10",
+  "deployer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+  "contracts": {
+    "KasLevOracle": "0xAe92b522836fBCe04491794cD841600792cA6fBE",
+    "KasLevAssetRegistry": "0x3D19d67dd23093a74027e096Ddcf6874D336582d",
+    "KasLevVault": "0x048129c68A48Ded374e91D64bC1A567eD52964f1",
+    "KasLevPerps": "0xC13A26f28D9B1281A87b2e2BC14E0260F38C47B0"
+  },
+  "config": {
+    "developer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "devFeeWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "seedKas": 20,
+    "lockDays": 100,
+    "markets": [{ "symbol": "KAS", "maxLeverage": 1000000 }]
+  },
+  "notes": "Testnet deployment. Seed is 20 KAS (mainnet target: 30000). Oracle is keeper-pushed by the deployer; price feed live. Not audited — testnet only."
+}
