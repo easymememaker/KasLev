@@ -1,0 +1,6 @@
+{
+  "name": "KasLev",
+  "description": "KasLev is an open-source decentralized high-leverage trading platform built exclusively for the Kaspa ecosystem, featuring real-time market data visualization, lightning-fast transaction speeds, and automated strategy triggers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

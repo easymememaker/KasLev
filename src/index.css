@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-kaspa: var(--theme-kaspa);
+  --color-kaspa-dark: var(--theme-kaspa-dark);
+  --color-kaspa-light: var(--theme-kaspa-light);
+  --color-bg-darker: var(--theme-bg-darker);
+  --color-bg-dark: var(--theme-bg-dark);
+  --color-bg-card: var(--theme-bg-card);
+  --color-border-dark: var(--theme-border-dark);
+}
+
+:root {
+  --theme-kaspa: #14b8a6; /* Soft Premium Turquoise */
+  --theme-kaspa-dark: #0f766e;
+  --theme-kaspa-light: #2dd4bf;
+  --theme-bg-darker: #090d16; /* Soft obsidian space */
+  --theme-bg-dark: #0f1626;   /* Rich slate navy dark */
+  --theme-bg-card: #172237;   /* Reassuring slate navy card */
+  --theme-border-dark: #243552; /* Soft grey-blue border */
+}
+
+:root.theme-high-contrast {
+  --theme-kaspa: #00f0ff; /* Ultra crisp cyber blue/cyan for high legibility */
+  --theme-kaspa-dark: #0891b2;
+  --theme-kaspa-light: #67e8f9;
+  --theme-bg-darker: #000000; /* OLED Pitch Black to ease eye-strain in low light */
+  --theme-bg-dark: #09090b;   /* Deep solid charcoal black */
+  --theme-bg-card: #121214;   /* Elevated high-contrast card background */
+  --theme-border-dark: #4b5563; /* Visible bright-gray boundary borders */
+}
+
+@layer base {
+  body {
+    background-color: var(--theme-bg-darker);
+    color: #f1f5f9;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
