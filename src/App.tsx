@@ -15,6 +15,8 @@ import { Token, Position, LiquidityPool, AutomatedStrategy, TradeHistoryItem } f
 import { Shield, Sparkles, AlertCircle, CheckCircle2, RefreshCw, Radio, Bell } from 'lucide-react';
 import { useKaspaPrice } from './hooks/useKaspaPrice';
 import { getFeePercentage, calculateLiquidationPrice, calculatePnL, calculatePositionSize } from './utils/math';
+import { openPositionOnChain, closePositionOnChain } from './web3/kaslev';
+import { KASPLEX_TESTNET } from './web3/config';
 
 const INITIAL_TOKENS: Token[] = [
   { id: 'kas', symbol: 'KAS', name: 'Kaspa', price: 0.15420, change24h: 3.42, decimals: 8 },
@@ -399,29 +401,44 @@ export default function App() {
       return;
     }
 
-    // Active live wallet request signatures if connected!
+    // REAL on-chain path: MetaMask on Kasplex L2 executes an actual openPosition transaction
+    // (margin + dev fee + keeper fee are sent as native KAS to the deployed contract).
     if (connectedWalletType === 'METAMASK' && typeof (window as any).ethereum !== 'undefined') {
       try {
-        triggerAlert('info', '🔒 Sign the position authorization in MetaMask to proceed...');
-        const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
-        const from = accounts[0] || userL2Address;
-        
-        // personal_sign message
-        const message = `Authorize KasLev High-Leverage Position:\nSymbol: ${activeToken.symbol}\nType: ${type}\nLeverage: ${leverage}x\nCollateral: ${collateral} KAS\nTimestamp: ${Date.now()}`;
-        const hexMsg = '0x' + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, '0')).join('');
-        
-        const sig = await (window as any).ethereum.request({
-          method: 'personal_sign',
-          params: [hexMsg, from],
-        });
-        console.log('Position signed successfully in MetaMask. Signature:', sig);
-        triggerAlert('success', '✅ Position signed & broadcasted safely!');
+        triggerAlert('info', `🔒 Confirm the ${type} in MetaMask — margin + fee are sent on-chain...`);
+        const { txHash, positionId } = await openPositionOnChain(
+          activeToken.symbol, leverage, type === 'LONG', collateral,
+        );
+
+        const currentPrice = activeToken.price;
+        const feePercent = getFeePercentage(leverage);
+        const feePaid = collateral * (feePercent / 100);
+        const kasPrice = tokens.find((t) => t.id === 'kas')?.price || 0.1542;
+        const sizeInTokens = calculatePositionSize(collateral, leverage, kasPrice, currentPrice);
+        const liquidationPrice = calculateLiquidationPrice(type, currentPrice, leverage);
+
+        setPositions((prev) => [...prev, {
+          id: positionId != null ? `onchain-${positionId}` : `onchain-${Date.now()}`,
+          symbol: activeToken.symbol, type, leverage,
+          size: parseFloat(sizeInTokens.toFixed(2)), margin: collateral,
+          entryPrice: currentPrice, liquidationPrice: parseFloat(liquidationPrice.toFixed(6)),
+          currentPrice, pnl: 0, pnlPercentage: 0, feePaid, timestamp: Date.now(),
+        }]);
+        setTradeHistory((prev) => [{
+          id: `hist-${Date.now()}`, symbol: activeToken.symbol, type, action: 'OPEN',
+          leverage, size: parseFloat(sizeInTokens.toFixed(2)), price: currentPrice,
+          pnl: 0, fee: feePaid, timestamp: Date.now(), txId: txHash, fromAddress: userL2Address,
+        }, ...prev]);
+        console.log(`View tx: ${KASPLEX_TESTNET.explorer}/tx/${txHash}`);
+        triggerAlert('success', `✅ ${type} opened on-chain! Tx ${txHash.substring(0, 12)}… (position #${positionId ?? '?'})`);
       } catch (err: any) {
-        console.error('MetaMask position signing failed:', err);
-        triggerAlert('error', `Rejected: ${err?.message || 'Signature request cancelled.'}`);
-        return;
+        console.error('On-chain openPosition failed:', err);
+        triggerAlert('error', `Rejected: ${err?.shortMessage || err?.message || 'Transaction cancelled.'}`);
       }
-    } else if (connectedWalletType === 'KASWARE' && typeof (window as any).kasware !== 'undefined') {
+      return;
+    }
+
+    if (connectedWalletType === 'KASWARE' && typeof (window as any).kasware !== 'undefined') {
       try {
         triggerAlert('info', '🔒 Sign the position authorization in Kasware to proceed...');
         const sig = await (window as any).kasware.signMessage(`Authorize KasLev High-Leverage Position:\nSymbol: ${activeToken.symbol}\nType: ${type}\nLeverage: ${leverage}x\nCollateral: ${collateral} KAS`);
@@ -490,9 +507,33 @@ export default function App() {
   };
 
   // TRADING CLOSE ACTION
-  const handleClosePosition = (id: string) => {
+  const handleClosePosition = async (id: string) => {
     const pos = positions.find((p) => p.id === id);
     if (!pos) return;
+
+    // Real on-chain positions carry an `onchain-<id>` id — settle them via the contract.
+    if (id.startsWith('onchain-')) {
+      const chainId = parseInt(id.replace('onchain-', ''), 10);
+      if (!Number.isNaN(chainId)) {
+        try {
+          triggerAlert('info', `🔒 Confirm closing position #${chainId} in MetaMask...`);
+          const { txHash } = await closePositionOnChain(chainId);
+          setPositions((prev) => prev.filter((p) => p.id !== id));
+          setTradeHistory((prev) => [{
+            id: `hist-${Date.now()}`, symbol: pos.symbol, type: pos.type, action: 'CLOSE',
+            leverage: pos.leverage, size: pos.size, price: pos.currentPrice,
+            pnl: pos.pnl, fee: pos.feePaid, timestamp: Date.now(), txId: txHash,
+            fromAddress: VAULT_ADDRESS, toAddress: userL2Address,
+          }, ...prev]);
+          console.log(`View tx: ${KASPLEX_TESTNET.explorer}/tx/${txHash}`);
+          triggerAlert('success', `✅ Position #${chainId} closed on-chain! Tx ${txHash.substring(0, 12)}…`);
+        } catch (err: any) {
+          console.error('On-chain close failed:', err);
+          triggerAlert('error', `Rejected: ${err?.shortMessage || err?.message || 'Close cancelled.'}`);
+        }
+        return;
+      }
+    }
 
     // Standard closing dev fee matches open fee
     const closeFee = pos.feePaid;

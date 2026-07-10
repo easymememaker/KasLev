@@ -10,6 +10,7 @@ import {
   CheckCircle2, AlertCircle, Info, ChevronDown, Activity
 } from 'lucide-react';
 import { Token } from '../types';
+import { ensureKasplexNetwork } from '../web3/kaslev';
 
 interface NavbarProps {
   currentTab: string;
@@ -243,6 +244,8 @@ export default function Navbar({
       try {
         const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
         if (accounts && accounts.length > 0) {
+          // Make sure the wallet is on the Kasplex L2 so trades actually land on-chain.
+          await ensureKasplexNetwork();
           const addr = accounts[0];
           setUserL2Address(addr);
           // Map to an elegant aligned virtual L1 address to keep UI consistent

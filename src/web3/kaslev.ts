@@ -1,0 +1,197 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { BrowserProvider, Contract, JsonRpcProvider, ethers } from 'ethers';
+import {
+  CONTRACTS,
+  KASPLEX_TESTNET,
+  ORACLE_ABI,
+  PERPS_ABI,
+  VAULT_ABI,
+} from './config';
+
+/** The injected EIP-1193 provider (MetaMask or any EVM wallet), if present. */
+function injected(): any {
+  return (window as any).ethereum;
+}
+
+export function hasInjectedWallet(): boolean {
+  return typeof injected() !== 'undefined';
+}
+
+/** keccak256 of a market symbol, e.g. assetId("KAS"). */
+export function assetId(symbol: string): string {
+  return ethers.keccak256(ethers.toUtf8Bytes(symbol));
+}
+
+/** A read-only provider that talks to the Kasplex RPC directly (no wallet needed). */
+export function readProvider(): JsonRpcProvider {
+  return new JsonRpcProvider(KASPLEX_TESTNET.rpcUrl);
+}
+
+/**
+ * Ensure the injected wallet is on the Kasplex L2 chain, adding it if unknown.
+ */
+export async function ensureKasplexNetwork(): Promise<void> {
+  const eth = injected();
+  if (!eth) throw new Error('No EVM wallet found. Install MetaMask.');
+  try {
+    await eth.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: KASPLEX_TESTNET.chainIdHex }],
+    });
+  } catch (err: any) {
+    // 4902 = chain not added yet -> add it, then it becomes active.
+    if (err?.code === 4902 || /Unrecognized chain/i.test(err?.message || '')) {
+      await eth.request({
+        method: 'wallet_addEthereumChain',
+        params: [
+          {
+            chainId: KASPLEX_TESTNET.chainIdHex,
+            chainName: KASPLEX_TESTNET.name,
+            rpcUrls: [KASPLEX_TESTNET.rpcUrl],
+            nativeCurrency: KASPLEX_TESTNET.nativeCurrency,
+            blockExplorerUrls: [KASPLEX_TESTNET.explorer],
+          },
+        ],
+      });
+    } else {
+      throw err;
+    }
+  }
+}
+
+export interface ConnectedWallet {
+  address: string;
+  chainId: number;
+}
+
+/** Request accounts and make sure we're on Kasplex. Returns the connected address. */
+export async function connectWallet(): Promise<ConnectedWallet> {
+  const eth = injected();
+  if (!eth) throw new Error('No EVM wallet found. Install MetaMask to trade on-chain.');
+  const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
+  await ensureKasplexNetwork();
+  const chainIdHex: string = await eth.request({ method: 'eth_chainId' });
+  return { address: accounts[0], chainId: parseInt(chainIdHex, 16) };
+}
+
+async function signer() {
+  const eth = injected();
+  if (!eth) throw new Error('No EVM wallet found.');
+  const provider = new BrowserProvider(eth);
+  return provider.getSigner();
+}
+
+function perpsWith(runner: any): Contract {
+  return new Contract(CONTRACTS.KasLevPerps, PERPS_ABI as unknown as string[], runner);
+}
+
+/** Read-only KAS/USD price (1e18) currently on the oracle. */
+export async function getOraclePrice(symbol: string): Promise<{ price: number; updatedAt: number }> {
+  const oracle = new Contract(CONTRACTS.KasLevOracle, ORACLE_ABI as unknown as string[], readProvider());
+  const [price, updatedAt] = await oracle.getPrice(assetId(symbol));
+  return { price: Number(ethers.formatEther(price)), updatedAt: Number(updatedAt) };
+}
+
+/** Total pooled liquidity (KAS) backing the protocol. */
+export async function getPoolLiquidity(): Promise<number> {
+  const vault = new Contract(CONTRACTS.KasLevVault, VAULT_ABI as unknown as string[], readProvider());
+  return Number(ethers.formatEther(await vault.totalLiquidity()));
+}
+
+export interface OnChainPosition {
+  id: number;
+  symbol: string;
+  isLong: boolean;
+  leverage: number;
+  marginKas: number;
+  entryPrice: number;
+  liquidationPrice: number;
+  pnlKas: number;
+  closed: boolean;
+}
+
+/** Quote the full KAS cost (margin + dev fee + keeper fee) to open a position. */
+export async function quoteOpenCost(leverage: number, marginKas: number) {
+  const perps = perpsWith(readProvider());
+  const margin = ethers.parseEther(String(marginKas));
+  const [openFee, keeperFee, total] = await perps.quoteOpenCost(leverage, margin);
+  return {
+    openFeeKas: Number(ethers.formatEther(openFee)),
+    keeperFeeKas: Number(ethers.formatEther(keeperFee)),
+    totalKas: Number(ethers.formatEther(total)),
+  };
+}
+
+/**
+ * Open a real leveraged position on-chain. Sends margin + fees as native KAS.
+ * Returns the transaction hash once mined.
+ */
+export async function openPositionOnChain(
+  symbol: string,
+  leverage: number,
+  isLong: boolean,
+  marginKas: number,
+): Promise<{ txHash: string; positionId?: number }> {
+  const perps = perpsWith(await signer());
+  const margin = ethers.parseEther(String(marginKas));
+  const [, , total] = await perps.quoteOpenCost(leverage, margin);
+  const tx = await perps.openPosition(assetId(symbol), leverage, isLong, margin, { value: total });
+  const receipt = await tx.wait();
+
+  // Try to read the emitted positionId.
+  let positionId: number | undefined;
+  const iface = new ethers.Interface(PERPS_ABI as unknown as string[]);
+  for (const log of receipt?.logs ?? []) {
+    try {
+      const parsed = iface.parseLog(log);
+      if (parsed?.name === 'PositionOpened') positionId = Number(parsed.args.positionId);
+    } catch {
+      /* not our event */
+    }
+  }
+  return { txHash: tx.hash, positionId };
+}
+
+/** Close one of the caller's positions on-chain. Returns the tx hash. */
+export async function closePositionOnChain(positionId: number): Promise<{ txHash: string }> {
+  const perps = perpsWith(await signer());
+  const tx = await perps.closePosition(positionId);
+  await tx.wait();
+  return { txHash: tx.hash };
+}
+
+/** Fetch all (open) positions for a trader from chain, with live PnL. */
+export async function getTraderPositions(trader: string, symbolFor: (id: string) => string): Promise<OnChainPosition[]> {
+  const perps = perpsWith(readProvider());
+  const ids: bigint[] = await perps.getTraderPositions(trader);
+  const out: OnChainPosition[] = [];
+  for (const idBig of ids) {
+    const id = Number(idBig);
+    const p = await perps.positions(id);
+    if (p.closed) continue;
+    let pnlKas = 0;
+    let liq = 0;
+    try {
+      pnlKas = Number(ethers.formatEther(await perps.currentPnL(id)));
+      liq = Number(ethers.formatEther(await perps.liquidationPrice(id)));
+    } catch {
+      /* oracle may be stale */
+    }
+    out.push({
+      id,
+      symbol: symbolFor(p.assetId),
+      isLong: p.isLong,
+      leverage: Number(p.leverage),
+      marginKas: Number(ethers.formatEther(p.margin)),
+      entryPrice: Number(ethers.formatEther(p.entryPrice)),
+      liquidationPrice: liq,
+      pnlKas,
+      closed: p.closed,
+    });
+  }
+  return out;
+}
