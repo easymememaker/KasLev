@@ -10,6 +10,7 @@ import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 interface IKasLevVault {
     function depositMargin(address trader) external payable;
     function settlePayout(address to, uint256 amount) external;
+    function settleLiquidationShare(address to, uint256 amount) external returns (uint256);
     function totalLiquidity() external view returns (uint256);
 }
 
@@ -57,6 +58,8 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant MAX_FEE_BPS = 1_000;
     /// @notice Hard cap on the flat keeper fee (5 KAS). Anti-abuse transparency guard.
     uint256 public constant MAX_KEEPER_FEE = 5e18;
+    /// @notice Hard cap on the liquidation profit-share (20%). Transparency guard.
+    uint256 public constant MAX_LIQ_SHARE_BPS = 2_000;
     /// @notice Precision used for USD prices and internal ratio math.
     uint256 private constant PRICE_SCALE = 1e18;
 
@@ -78,6 +81,12 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     ///      MAX_KEEPER_FEE, and every change emits {KeeperConfigUpdated}. Distinct from the
     ///      developer trading fee — it is not developer profit, it is operational funding.
     uint256 public keeperFee;
+
+    /// @notice Developer share of a liquidation, in bps (default 5%). Transparent house edge:
+    /// @dev On a liquidation, this fraction of the wiped margin is routed to the dev — but the
+    ///      vault only pays it while pool liquidity stays at/above the seed principal. Publicly
+    ///      readable, capped at MAX_LIQ_SHARE_BPS, adjustable over time via {setLiqShareBps}.
+    uint256 public liqShareBps = 500;
 
     // --------------------------- Risk parameters --------------------------
 
@@ -135,6 +144,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     event OracleUpdated(address indexed oracle);
     event DevFeeWalletUpdated(address indexed wallet);
     event KeeperConfigUpdated(address indexed keeperWallet, uint256 keeperFee);
+    event LiqShareUpdated(uint256 liqShareBps);
     event RiskParamsUpdated(uint256 maintenanceMarginBps, uint256 maxLeverage, uint256 minMargin, uint256 maxMargin, uint256 maxPriceAge);
     event FeeScheduleUpdated(
         uint256 stdMaxLeverage,
@@ -182,6 +192,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     error NotLiquidatable();
     error FeeTooHigh();
     error KeeperFeeTooHigh();
+    error LiqShareTooHigh();
     error InvalidTierOrder();
 
     // ---------------------------- Construction ----------------------------
@@ -229,6 +240,17 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         keeperWallet = keeperWallet_;
         keeperFee = keeperFee_;
         emit KeeperConfigUpdated(keeperWallet_, keeperFee_);
+    }
+
+    /**
+     * @notice Set the developer's liquidation profit-share (bps). Capped at MAX_LIQ_SHARE_BPS
+     *         (20%). Meant to start low and be raised over time as the pool matures; the vault
+     *         still only pays it while liquidity stays at/above the seed principal.
+     */
+    function setLiqShareBps(uint256 liqShareBps_) external onlyOwner {
+        if (liqShareBps_ > MAX_LIQ_SHARE_BPS) revert LiqShareTooHigh();
+        liqShareBps = liqShareBps_;
+        emit LiqShareUpdated(liqShareBps_);
     }
 
     function setRiskParams(
@@ -417,6 +439,13 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         // Interactions via the vault (the only contract able to move liquidity).
         if (closeFee > 0) vault.settlePayout(devFeeWallet, closeFee);
         if (payout > 0) vault.settlePayout(p.trader, payout);
+
+        // On liquidation, route the developer's transparent share of the wiped margin — the
+        // vault caps it so pool liquidity never dips below the seed principal.
+        if (liquidated && liqShareBps > 0) {
+            uint256 liqShare = (p.margin * liqShareBps) / BPS_DENOMINATOR;
+            if (liqShare > 0) vault.settleLiquidationShare(devFeeWallet, liqShare);
+        }
 
         emit PositionClosed(positionId, p.trader, exitPrice, pnl, closeFee, payout, liquidated);
     }

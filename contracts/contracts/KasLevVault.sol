@@ -61,6 +61,7 @@ contract KasLevVault is Ownable, ReentrancyGuard {
     event LiquidityAdded(address indexed from, uint256 amount);
     event MarginReceived(address indexed trader, uint256 amount);
     event PayoutSettled(address indexed to, uint256 amount);
+    event LiquidationSharePaid(address indexed to, uint256 requested, uint256 paid);
     event DeveloperPrincipalWithdrawn(address indexed developer, uint256 amount);
 
     error NotPerps();
@@ -159,6 +160,34 @@ contract KasLevVault is Ownable, ReentrancyGuard {
         if (address(this).balance < amount) revert InsufficientLiquidity();
         payable(to).sendValue(amount);
         emit PayoutSettled(to, amount);
+    }
+
+    /**
+     * @notice Pay the developer a share of a liquidation — but ONLY the portion that keeps
+     *         pool liquidity at or above the seed principal. This is the survival guardrail:
+     *         profit is only skimmed when the pool sits above the seed, so a losing streak
+     *         (traders winning) rebuilds the pool before any further skimming resumes.
+     * @dev Callable only by the authorized Perps engine. Returns the amount actually paid.
+     *      NOTE (known simplification): the floor is the seed principal; it does not yet
+     *      additionally reserve for the max payout of other open positions. Keep `liqShareBps`
+     *      conservative and open-interest caps tight until reserve accounting is added.
+     */
+    function settleLiquidationShare(address to, uint256 amount)
+        external
+        onlyPerps
+        nonReentrant
+        returns (uint256 paid)
+    {
+        if (amount == 0) return 0;
+        uint256 bal = address(this).balance;
+        if (bal <= developerPrincipal) {
+            emit LiquidationSharePaid(to, amount, 0);
+            return 0; // pool at/below seed -> skim nothing, let it rebuild first
+        }
+        uint256 headroom = bal - developerPrincipal;
+        paid = amount <= headroom ? amount : headroom;
+        if (paid > 0) payable(to).sendValue(paid);
+        emit LiquidationSharePaid(to, amount, paid);
     }
 
     /**

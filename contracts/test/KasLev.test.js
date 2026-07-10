@@ -53,6 +53,31 @@ describe('KasLevOracle', () => {
     await expect(oracle.connect(trader).setPrice(KAS_ID, PRICE_003)).to.be.reverted;
     await expect(oracle.setPrice(KAS_ID, 0)).to.be.reverted;
   });
+
+  it('returns the MEDIAN of fresh reporter prices (manipulation-resistant)', async () => {
+    const { oracle, owner, trader, keeper } = await loadFixture(deployFixture);
+    // owner already reported 0.030 in the fixture. Add two independent reporters.
+    await oracle.setReporter(trader.address, true);
+    await oracle.setReporter(keeper.address, true);
+    await oracle.connect(trader).setPrice(KAS_ID, ethers.parseEther('0.031'));
+    await oracle.connect(keeper).setPrice(KAS_ID, ethers.parseEther('0.050')); // outlier
+    // prices {0.030, 0.031, 0.050} -> median 0.031 (the outlier can't move it)
+    const [price] = await oracle.getPrice(KAS_ID);
+    expect(price).to.equal(ethers.parseEther('0.031'));
+    expect(await oracle.freshSourceCount(KAS_ID)).to.equal(3);
+  });
+
+  it('refuses to price (and blocks trading) when fresh sources < minSources', async () => {
+    const { oracle, perps, trader } = await loadFixture(deployFixture);
+    await oracle.setParams(300, 2); // require 2 fresh sources; fixture only has 1
+    const [price] = await oracle.getPrice(KAS_ID);
+    expect(price).to.equal(0n);
+    const margin = ethers.parseEther('100');
+    const { total } = await perps.quoteOpenCost(10, margin);
+    await expect(
+      perps.connect(trader).openPosition(KAS_ID, 10, true, margin, { value: total }),
+    ).to.be.revertedWithCustomError(perps, 'ZeroPrice');
+  });
 });
 
 describe('Fee schedule (mirrors src/utils/math.ts getFeePercentage)', () => {
@@ -235,12 +260,13 @@ describe('KasLevPerps — trading', () => {
       perps.connect(trader).openPosition(KAS_ID, 101, true, margin, { value: q101.total }),
     ).to.be.revertedWithCustomError(perps, 'InvalidLeverage');
 
-    // Let the price go stale (> maxPriceAge) and confirm opens are rejected.
+    // Let all reporter prices go stale (> oracle maxAge); the median oracle then reports no
+    // fresh price (0), so the engine refuses to open with ZeroPrice — trading pauses safely.
     await time.increase(301);
     const q = await perps.quoteOpenCost(10, margin);
     await expect(
       perps.connect(trader).openPosition(KAS_ID, 10, true, margin, { value: q.total }),
-    ).to.be.revertedWithCustomError(perps, 'StalePrice');
+    ).to.be.revertedWithCustomError(perps, 'ZeroPrice');
 
     // Refresh and it works again.
     await oracle.setPrice(KAS_ID, PRICE_003);
@@ -277,5 +303,28 @@ describe('KasLevPerps — trading', () => {
     await expect(
       perps.connect(owner).setKeeperConfig(keeper.address, ethers.parseEther('6')),
     ).to.be.revertedWithCustomError(perps, 'KeeperFeeTooHigh');
+  });
+
+  it('routes the 5% liquidation profit-share to the developer (guarded by the seed)', async () => {
+    const { perps, oracle, vault, devFee, keeper, trader } = await loadFixture(deployFixture);
+    expect(await perps.liqShareBps()).to.equal(500); // 5% default
+    const margin = ethers.parseEther('100');
+    const { total } = await perps.quoteOpenCost(20, margin);
+    await perps.connect(trader).openPosition(KAS_ID, 20, true, margin, { value: total });
+
+    const liq = await perps.liquidationPrice(1);
+    await oracle.setPrice(KAS_ID, (liq * 999n) / 1000n); // just below liq
+
+    // Pool (5000 seed + 100 margin) is far above the seed, so the full 5 KAS share pays out.
+    await expect(perps.connect(keeper).liquidate(1))
+      .to.emit(vault, 'LiquidationSharePaid')
+      .withArgs(devFee.address, ethers.parseEther('5'), ethers.parseEther('5'));
+  });
+
+  it('caps the liquidation share at MAX_LIQ_SHARE_BPS and is adjustable', async () => {
+    const { perps } = await loadFixture(deployFixture);
+    await expect(perps.setLiqShareBps(2001)).to.be.revertedWithCustomError(perps, 'LiqShareTooHigh');
+    await perps.setLiqShareBps(1000); // raise to 10% over time
+    expect(await perps.liqShareBps()).to.equal(1000);
   });
 });
