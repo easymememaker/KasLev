@@ -1,3 +1,4 @@
+require('dotenv').config();
 require('@nomicfoundation/hardhat-toolbox');
 
 /**
@@ -24,8 +25,11 @@ module.exports = {
   },
   networks: {
     hardhat: {},
-    kaspaL2Testnet: {
-      url: process.env.KASPA_L2_RPC_URL || '',
+    // Kasplex zkEVM public testnet — an EVM Layer-2 on Kaspa. Native currency: KAS.
+    // Chain ID 167012 (0x28c64). Explorer: https://explorer.testnet.kasplextest.xyz
+    kasplexTestnet: {
+      url: process.env.KASPA_L2_RPC_URL || 'https://rpc.kasplextest.xyz',
+      chainId: 167012,
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },
   },
