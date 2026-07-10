@@ -826,7 +826,7 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.28, ease: [0.16, 0.84, 0.44, 1] }}
             >
               <TradingView
                 tokens={tokens}
@@ -853,7 +853,7 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.28, ease: [0.16, 0.84, 0.44, 1] }}
             >
               <StrategyBuilder
                 tokens={tokens}
@@ -883,7 +883,7 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.28, ease: [0.16, 0.84, 0.44, 1] }}
             >
               <ProtocolTransparency
                 pool={pool}
@@ -900,7 +900,7 @@ export default function App() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.15 }}
+              transition={{ duration: 0.28, ease: [0.16, 0.84, 0.44, 1] }}
             >
               <TokenManager
                 tokens={tokens}

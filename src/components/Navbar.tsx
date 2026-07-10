@@ -380,14 +380,14 @@ export default function Navbar({
   };
 
   return (
-    <header className="bg-bg-dark border-b border-border-dark py-3 px-4 sticky top-0 z-50 shadow-md" id="kaslev-header">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+    <header className="bg-bg-dark/95 backdrop-blur-md border-b border-border-dark py-2.5 px-4 sticky top-0 z-50 shadow-md" id="kaslev-header">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-x-6 gap-y-2.5">
         {/* Brand Logo & Price */}
         <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-bg-dark to-bg-darker rounded-xl flex items-center justify-center border border-border-dark shadow-md group hover:border-kaspa/50 transition-all duration-300">
+            <div className="w-9 h-9 bg-gradient-to-br from-bg-dark to-bg-darker rounded-xl flex items-center justify-center border border-border-dark shadow-md group hover:border-kaspa/50 transition-all duration-300">
               <svg
-                className="w-6 h-6 text-kaspa hover:scale-110 transition-transform duration-300"
+                className="w-5 h-5 text-kaspa hover:scale-110 transition-transform duration-300"
                 viewBox="0 0 32 32"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -657,7 +657,7 @@ export default function Navbar({
       </div>
 
       {/* L1 Info Bar */}
-      <div className="bg-bg-darker border-t border-border-dark mt-2 -mb-3 py-1 px-4 text-[11px] text-gray-400 font-mono flex flex-wrap justify-between gap-2 overflow-hidden">
+      <div className="bg-bg-darker border-t border-border-dark mt-2 -mb-2.5 py-1 px-4 text-[11px] text-gray-400 font-mono flex flex-wrap justify-between gap-2 overflow-hidden">
         <div className="flex items-center gap-2 truncate">
           <span className="text-kaspa font-semibold">Dev Wallet:</span>
           <span className="truncate text-gray-300 select-all max-w-[200px] md:max-w-none">{DEV_WALLET}</span>
