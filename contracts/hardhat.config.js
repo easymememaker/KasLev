@@ -32,5 +32,13 @@ module.exports = {
       chainId: 167012,
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },
+    // Igra Galleon public testnet — EVM L2 on Kaspa. Native currency: iKAS.
+    // Docs note a 2000 gwei minimum gas price. Explorer: https://explorer.galleon-testnet.igralabs.com
+    igraGalleon: {
+      url: process.env.IGRA_RPC_URL || 'https://galleon-testnet.igralabs.com:8545',
+      chainId: 38836,
+      gasPrice: 2_000_000_000_000, // Galleon enforces a 2000 gwei minimum
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    },
   },
 };

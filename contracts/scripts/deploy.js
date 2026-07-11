@@ -82,12 +82,25 @@ async function main() {
   }
 
   // 8. Write a machine-readable deployment record (consumed by the keeper + frontend).
+  const netMeta = {
+    kasplexTestnet: {
+      rpc: process.env.KASPA_L2_RPC_URL || 'https://rpc.kasplextest.xyz',
+      explorer: 'https://explorer.testnet.kasplextest.xyz',
+      nativeCurrency: 'KAS',
+    },
+    igraGalleon: {
+      rpc: process.env.IGRA_RPC_URL || 'https://galleon-testnet.igralabs.com:8545',
+      explorer: 'https://explorer.galleon-testnet.igralabs.com',
+      nativeCurrency: 'iKAS',
+    },
+  }[hre.network.name] || { rpc: '', explorer: '', nativeCurrency: 'KAS' };
+
   const record = {
     network: hre.network.name,
     chainId: Number((await ethers.provider.getNetwork()).chainId),
-    rpc: process.env.KASPA_L2_RPC_URL || 'https://rpc.kasplextest.xyz',
-    explorer: 'https://explorer.testnet.kasplextest.xyz',
-    nativeCurrency: 'KAS',
+    rpc: netMeta.rpc,
+    explorer: netMeta.explorer,
+    nativeCurrency: netMeta.nativeCurrency,
     deployedAt: new Date().toISOString().slice(0, 10),
     deployer: deployer.address,
     contracts: {

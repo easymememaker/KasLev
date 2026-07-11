@@ -1,0 +1,29 @@
+{
+  "network": "igraGalleon",
+  "chainId": 38836,
+  "rpc": "https://galleon-testnet.igralabs.com:8545",
+  "explorer": "https://explorer.galleon-testnet.igralabs.com",
+  "nativeCurrency": "iKAS",
+  "deployedAt": "2026-07-11",
+  "deployer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+  "contracts": {
+    "KasLevOracle": "0xAe92b522836fBCe04491794cD841600792cA6fBE",
+    "KasLevAssetRegistry": "0x3D19d67dd23093a74027e096Ddcf6874D336582d",
+    "KasLevVault": "0x048129c68A48Ded374e91D64bC1A567eD52964f1",
+    "KasLevPerps": "0xC13A26f28D9B1281A87b2e2BC14E0260F38C47B0"
+  },
+  "config": {
+    "developer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "devFeeWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "keeperWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
+    "keeperFeeKas": "0.15",
+    "seedKas": "1000",
+    "lockDays": "100",
+    "markets": [
+      {
+        "symbol": "KAS",
+        "maxLeverage": 1000000
+      }
+    ]
+  }
+}
