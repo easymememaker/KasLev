@@ -10,7 +10,7 @@ import {
   CheckCircle2, AlertCircle, Info, ChevronDown, Activity
 } from 'lucide-react';
 import { Token } from '../types';
-import { ensureKasplexNetwork } from '../web3/kaslev';
+import { ensureNetwork, setActiveNetwork, isSupportedNetwork } from '../web3/kaslev';
 
 interface NavbarProps {
   currentTab: string;
@@ -94,10 +94,10 @@ export default function Navbar({
       bps: number;
     }
   }>({
-    L1: { name: 'Kaspa Mainnet L1', desc: 'Secure Layer 1 DAG (1 BPS)', blockHeight: 84291048, latency: 12, status: 'optimal', bps: 1.0 },
-    L2_IGRA: { name: 'Igra L2 Rollup', desc: 'Zero-Gas Scaling Labs Rollup', blockHeight: 12845910, latency: 24, status: 'optimal', bps: 0.67 },
-    L2_SPARKLE: { name: 'Sparkle L2 App Chain', desc: 'Sovereign Application Chain', blockHeight: 8723101, latency: 45, status: 'optimal', bps: 0.33 },
-    L2_KASPLEX: { name: 'Kasplex zkEVM L2', desc: 'Solidity Smart Contracts (EVM)', blockHeight: 4912854, latency: 32, status: 'optimal', bps: 0.50 }
+    L1: { name: 'Kaspa Mainnet L1', desc: 'GHOSTDAG L1 — no EVM (view-only)', blockHeight: 84291048, latency: 12, status: 'optimal', bps: 1.0 },
+    L2_IGRA: { name: 'Igra Galleon Testnet', desc: 'EVM L2 · KasLev LIVE', blockHeight: 12845910, latency: 24, status: 'optimal', bps: 0.67 },
+    L2_SPARKLE: { name: 'Sparkle L2 (soon)', desc: 'Not yet live (view-only)', blockHeight: 8723101, latency: 45, status: 'optimal', bps: 0.33 },
+    L2_KASPLEX: { name: 'Kasplex zkEVM Testnet', desc: 'EVM L2 · KasLev LIVE', blockHeight: 4912854, latency: 32, status: 'optimal', bps: 0.50 }
   });
 
   React.useEffect(() => {
@@ -244,8 +244,11 @@ export default function Navbar({
       try {
         const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
         if (accounts && accounts.length > 0) {
-          // Make sure the wallet is on the Kasplex L2 so trades actually land on-chain.
-          await ensureKasplexNetwork();
+          // Make sure the wallet is on the active L2 so trades actually land on-chain.
+          if (isSupportedNetwork(activeChain)) {
+            setActiveNetwork(activeChain);
+            await ensureNetwork();
+          }
           const addr = accounts[0];
           setUserL2Address(addr);
           // Map to an elegant aligned virtual L1 address to keep UI consistent
@@ -376,9 +379,9 @@ export default function Navbar({
   const getChainName = (chain: typeof activeChain) => {
     switch (chain) {
       case 'L1': return 'Kaspa Mainnet L1';
-      case 'L2_IGRA': return 'Igra L2 (Labs)';
-      case 'L2_SPARKLE': return 'Sparkle Rollup L2';
-      case 'L2_KASPLEX': return 'Kasplex zkEVM L2';
+      case 'L2_IGRA': return 'Igra Galleon Testnet';
+      case 'L2_SPARKLE': return 'Sparkle L2 (soon)';
+      case 'L2_KASPLEX': return 'Kasplex zkEVM Testnet';
     }
   };
 
@@ -603,10 +606,24 @@ export default function Navbar({
                             </div>
                             {!isCurrent && (
                               <button
-                                onClick={() => {
+                                onClick={async () => {
                                   setActiveChain(chain.id as any);
-                                  if (triggerAlert) {
-                                    triggerAlert('success', `Switched active chain to ${metrics.name}`);
+                                  if (isSupportedNetwork(chain.id)) {
+                                    // Point the protocol at this L2's contracts...
+                                    setActiveNetwork(chain.id);
+                                    if (isWalletConnected && connectedWalletType === 'METAMASK') {
+                                      // ...and ask the wallet to switch to its chain so trades land here.
+                                      try {
+                                        await ensureNetwork();
+                                        triggerAlert?.('success', `Wallet + protocol now on ${metrics.name}`);
+                                      } catch (e: any) {
+                                        triggerAlert?.('error', `Network switch rejected: ${e?.message || 'cancelled'}`);
+                                      }
+                                    } else {
+                                      triggerAlert?.('success', `Now trading on ${metrics.name}`);
+                                    }
+                                  } else {
+                                    triggerAlert?.('info', `${metrics.name}: view-only — no smart contracts on this chain yet`);
                                   }
                                 }}
                                 className="text-[9px] text-kaspa hover:underline font-bold"

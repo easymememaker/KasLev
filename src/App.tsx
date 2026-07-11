@@ -15,8 +15,7 @@ import { Token, Position, LiquidityPool, AutomatedStrategy, TradeHistoryItem } f
 import { Shield, Sparkles, AlertCircle, CheckCircle2, RefreshCw, Radio, Bell } from 'lucide-react';
 import { useKaspaPrice } from './hooks/useKaspaPrice';
 import { getFeePercentage, calculateLiquidationPrice, calculatePnL, calculatePositionSize } from './utils/math';
-import { openPositionOnChain, closePositionOnChain } from './web3/kaslev';
-import { KASPLEX_TESTNET } from './web3/config';
+import { openPositionOnChain, closePositionOnChain, setActiveNetwork, getActiveNetwork, isSupportedNetwork } from './web3/kaslev';
 
 const INITIAL_TOKENS: Token[] = [
   { id: 'kas', symbol: 'KAS', name: 'Kaspa', price: 0.15420, change24h: 3.42, decimals: 8 },
@@ -122,7 +121,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('trading');
 
   // L1 & L2 Network / Wallet States
-  const [activeChain, setActiveChain] = useState<'L1' | 'L2_IGRA' | 'L2_SPARKLE' | 'L2_KASPLEX'>('L1');
+  const [activeChain, setActiveChain] = useState<'L1' | 'L2_IGRA' | 'L2_SPARKLE' | 'L2_KASPLEX'>('L2_KASPLEX');
   const [connectedWalletType, setConnectedWalletType] = useState<'KASPIUM' | 'KASWARE' | 'KDX' | 'METAMASK' | null>(null);
   const [isWalletConnected, setIsWalletConnected] = useState<boolean>(false);
   const [userL1Address, setUserL1Address] = useState<string>('kaspa:qqzjw5ur7fyq9q7la72shhcfcq02j76uetfque833g2l7e8vmjkt2eqf5egkf');
@@ -163,6 +162,14 @@ export default function App() {
     }
     localStorage.setItem('kaslev_high_contrast', String(isHighContrast));
   }, [isHighContrast]);
+
+  // Keep the on-chain layer pointed at whichever supported L2 the user has selected,
+  // so real trades are routed to that chain's deployed contracts.
+  useEffect(() => {
+    if (isSupportedNetwork(activeChain)) {
+      setActiveNetwork(activeChain);
+    }
+  }, [activeChain]);
 
   // Core Data States (persisted in localStorage for convenience)
   const [tokens, setTokens] = useState<Token[]>(() => {
@@ -429,7 +436,7 @@ export default function App() {
           leverage, size: parseFloat(sizeInTokens.toFixed(2)), price: currentPrice,
           pnl: 0, fee: feePaid, timestamp: Date.now(), txId: txHash, fromAddress: userL2Address,
         }, ...prev]);
-        console.log(`View tx: ${KASPLEX_TESTNET.explorer}/tx/${txHash}`);
+        console.log(`View tx: ${getActiveNetwork().explorer}/tx/${txHash}`);
         triggerAlert('success', `✅ ${type} opened on-chain! Tx ${txHash.substring(0, 12)}… (position #${positionId ?? '?'})`);
       } catch (err: any) {
         console.error('On-chain openPosition failed:', err);
@@ -525,7 +532,7 @@ export default function App() {
             pnl: pos.pnl, fee: pos.feePaid, timestamp: Date.now(), txId: txHash,
             fromAddress: VAULT_ADDRESS, toAddress: userL2Address,
           }, ...prev]);
-          console.log(`View tx: ${KASPLEX_TESTNET.explorer}/tx/${txHash}`);
+          console.log(`View tx: ${getActiveNetwork().explorer}/tx/${txHash}`);
           triggerAlert('success', `✅ Position #${chainId} closed on-chain! Tx ${txHash.substring(0, 12)}…`);
         } catch (err: any) {
           console.error('On-chain close failed:', err);
