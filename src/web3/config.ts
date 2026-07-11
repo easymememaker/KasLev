@@ -21,7 +21,7 @@ export const KASPLEX_TESTNET = {
 } as const;
 
 export const CONTRACTS = {
-  KasLevOracle: '0xD4615AA4b4A8134A65F8a003B77E1CD38d5c268f',
+  KasLevOracle: '0x13661C4B2534B4A054Cc519AEDf5e3D1364dCE69', // multi-source median oracle
   KasLevAssetRegistry: '0x3bAaF0d31105aa0D92eF3DA1d7574c4EDB70d90a',
   KasLevVault: '0xabD3bF3fd4EF65766753b1B4Eb924a4792d56Fb7',
   KasLevPerps: '0x5fF6E0A7eFa4eb23a42855Fb05bDd6802fb98157',
