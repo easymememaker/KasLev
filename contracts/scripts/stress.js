@@ -18,6 +18,10 @@ const { ethers } = require('ethers');
 
 const NETWORK = process.env.KEEPER_NETWORK || 'kasplexTestnet';
 const ROUNDS = Number(process.env.STRESS_ROUNDS || 6);
+// 'neutral' = perfect-robot trader (1/3 win/lose/liquidate, symmetric moves).
+// 'human'   = realistic degen: slow reactions -> liquidation odds scale with leverage,
+//             wins exit late (smaller), losses close late (bigger).
+const MODE = process.env.STRESS_MODE || 'neutral';
 const rec = require(path.join(__dirname, '..', 'deployments', NETWORK + '.json'));
 const KAS_ID = ethers.keccak256(ethers.toUtf8Bytes('KAS'));
 const f = (x) => Number(ethers.formatEther(x)).toFixed(4);
@@ -86,11 +90,22 @@ async function main() {
     stats.opened++; stats.devFees += openFee; stats.keeperFees += keeperFee;
 
     // pick an outcome: win / lose / liquidate
-    const outcome = rand(['win', 'lose', 'liquidate']);
-    const movePct = 0.5 / leverage; // half the distance to liquidation — safe partial move
+    let outcome;
+    if (MODE === 'human') {
+      // Slow human reactions: the higher the leverage, the more often the move outruns
+      // the trader before they can close — liquidation probability scales with leverage.
+      const liqP = leverage >= 100 ? 0.65 : leverage >= 50 ? 0.55 : leverage >= 25 ? 0.45 : 0.3;
+      const r = Math.random();
+      outcome = r < liqP ? 'liquidate' : r < liqP + (1 - liqP) * 0.45 ? 'win' : 'lose';
+    } else {
+      outcome = rand(['win', 'lose', 'liquidate']);
+    }
+    // Humans exit winners late (profit shrinks) and close losers late (loss grows).
+    const winMove = (MODE === 'human' ? 0.3 : 0.5) / leverage;
+    const loseMove = (MODE === 'human' ? 0.7 : 0.5) / leverage;
     let exitUsd;
-    if (outcome === 'win') exitUsd = base * (isLong ? 1 + movePct : 1 - movePct);
-    else if (outcome === 'lose') exitUsd = base * (isLong ? 1 - movePct : 1 + movePct);
+    if (outcome === 'win') exitUsd = base * (isLong ? 1 + winMove : 1 - winMove);
+    else if (outcome === 'lose') exitUsd = base * (isLong ? 1 - loseMove : 1 + loseMove);
     else exitUsd = Number(ethers.formatEther(await perpsK.liquidationPrice(pid))) * (isLong ? 0.999 : 1.001);
     await push(exitUsd);
 
