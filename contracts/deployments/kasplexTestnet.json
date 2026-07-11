@@ -7,17 +7,17 @@
   "deployedAt": "2026-07-11",
   "deployer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
   "contracts": {
-    "KasLevOracle": "0x217b8F8836f5729194a6485FD26811e137b55a94",
-    "KasLevAssetRegistry": "0xb723e0220503f3AA16B356e132aD5b2Df622f384",
-    "KasLevVault": "0x5cCEf245847E08842CBE4283B1dE1Bde889A09DA",
-    "KasLevPerps": "0xe8da7DF762321d83510a16F0a9D11EdC7640e47d"
+    "KasLevOracle": "0x87C37c72378a616050a5503E472e36F901f61f1e",
+    "KasLevAssetRegistry": "0xdaB29E9C6A11eB403Ab8AeF6459751610b0a23a3",
+    "KasLevVault": "0x1Ac0b02E1e41e944E1A8F93ffcF22caeF6CC26B7",
+    "KasLevPerps": "0x12EdcCE0875c3182300200d5ed235849342B393E"
   },
   "config": {
     "developer": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
     "devFeeWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
     "keeperWallet": "0x91FF5FA7eFa3DdC11F3f8C2955CB8f76b49D883c",
     "keeperFeeKas": "0.15",
-    "seedKas": "20",
+    "seedKas": "5",
     "lockDays": "100",
     "markets": [
       {

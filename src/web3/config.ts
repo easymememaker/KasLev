@@ -21,10 +21,10 @@ export const KASPLEX_TESTNET = {
 } as const;
 
 export const CONTRACTS = {
-  KasLevOracle: '0x217b8F8836f5729194a6485FD26811e137b55a94', // multi-source median oracle
-  KasLevAssetRegistry: '0xb723e0220503f3AA16B356e132aD5b2Df622f384',
-  KasLevVault: '0x5cCEf245847E08842CBE4283B1dE1Bde889A09DA', // guarded 5% liq-share vault
-  KasLevPerps: '0xe8da7DF762321d83510a16F0a9D11EdC7640e47d',
+  KasLevOracle: '0x87C37c72378a616050a5503E472e36F901f61f1e', // multi-source median oracle
+  KasLevAssetRegistry: '0xdaB29E9C6A11eB403Ab8AeF6459751610b0a23a3',
+  KasLevVault: '0x1Ac0b02E1e41e944E1A8F93ffcF22caeF6CC26B7', // escrow-protected vault
+  KasLevPerps: '0x12EdcCE0875c3182300200d5ed235849342B393E', // payout-capped perps
 } as const;
 
 // Minimal ABIs — only the fragments the frontend actually calls.

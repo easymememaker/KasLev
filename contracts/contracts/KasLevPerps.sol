@@ -9,9 +9,11 @@ import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 
 interface IKasLevVault {
     function depositMargin(address trader) external payable;
+    function releaseEscrow(uint256 amount) external;
     function settlePayout(address to, uint256 amount) external;
     function settleLiquidationShare(address to, uint256 amount) external returns (uint256);
     function totalLiquidity() external view returns (uint256);
+    function freeLiquidity() external view returns (uint256);
 }
 
 interface IKasLevAssetRegistry {
@@ -60,6 +62,8 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     uint256 public constant MAX_KEEPER_FEE = 5e18;
     /// @notice Hard cap on the liquidation profit-share (20%). Transparency guard.
     uint256 public constant MAX_LIQ_SHARE_BPS = 2_000;
+    /// @notice Hard ceiling on the per-position pool-payout cap (20% of free liquidity).
+    uint256 public constant MAX_PAYOUT_POOL_BPS = 2_000;
     /// @notice Precision used for USD prices and internal ratio math.
     uint256 private constant PRICE_SCALE = 1e18;
 
@@ -87,6 +91,19 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     ///      vault only pays it while pool liquidity stays at/above the seed principal. Publicly
     ///      readable, capped at MAX_LIQ_SHARE_BPS, adjustable over time via {setLiqShareBps}.
     uint256 public liqShareBps = 500;
+
+    // ------------------------- Payout caps (house solvency) -------------------------
+
+    /// @notice Max realized profit per position, as bps of its margin (default 900%).
+    /// @dev The classic degen-perp profit cap: a single lucky bet can 10x its margin but
+    ///      cannot bankrupt the house. Publicly readable, event-logged on change.
+    uint256 public maxProfitBps = 90_000;
+
+    /// @notice Max realized profit per position, as bps of the pool's FREE liquidity
+    ///         (default 2%). Guarantees no single settlement can drain the pool, and —
+    ///         because a payout is then always ≤ own margin + 2% of free pool — closing
+    ///         can never revert with InsufficientLiquidity (no trapped winners).
+    uint256 public maxPayoutPoolBps = 200;
 
     // --------------------------- Risk parameters --------------------------
 
@@ -145,6 +162,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     event DevFeeWalletUpdated(address indexed wallet);
     event KeeperConfigUpdated(address indexed keeperWallet, uint256 keeperFee);
     event LiqShareUpdated(uint256 liqShareBps);
+    event PayoutCapsUpdated(uint256 maxProfitBps, uint256 maxPayoutPoolBps);
     event RiskParamsUpdated(uint256 maintenanceMarginBps, uint256 maxLeverage, uint256 minMargin, uint256 maxMargin, uint256 maxPriceAge);
     event FeeScheduleUpdated(
         uint256 stdMaxLeverage,
@@ -193,6 +211,7 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
     error FeeTooHigh();
     error KeeperFeeTooHigh();
     error LiqShareTooHigh();
+    error BadPayoutCaps();
     error InvalidTierOrder();
 
     // ---------------------------- Construction ----------------------------
@@ -251,6 +270,19 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         if (liqShareBps_ > MAX_LIQ_SHARE_BPS) revert LiqShareTooHigh();
         liqShareBps = liqShareBps_;
         emit LiqShareUpdated(liqShareBps_);
+    }
+
+    /**
+     * @notice Tune the per-position payout caps. Both must be non-zero and the pool cap can
+     *         never exceed MAX_PAYOUT_POOL_BPS (20% of free liquidity) — solvency guard.
+     */
+    function setPayoutCaps(uint256 maxProfitBps_, uint256 maxPayoutPoolBps_) external onlyOwner {
+        if (maxProfitBps_ == 0 || maxPayoutPoolBps_ == 0 || maxPayoutPoolBps_ > MAX_PAYOUT_POOL_BPS) {
+            revert BadPayoutCaps();
+        }
+        maxProfitBps = maxProfitBps_;
+        maxPayoutPoolBps = maxPayoutPoolBps_;
+        emit PayoutCapsUpdated(maxProfitBps_, maxPayoutPoolBps_);
     }
 
     function setRiskParams(
@@ -418,13 +450,25 @@ contract KasLevPerps is Ownable, Pausable, ReentrancyGuard {
         if (p.closed) revert AlreadyClosed();
         p.closed = true; // effect before interactions (CEI)
 
+        // This position's margin is no longer escrow owed to an open position.
+        vault.releaseEscrow(p.margin);
+
         uint256 exitPrice = _freshPrice(p.assetId);
         int256 pnl = _pnl(p, exitPrice);
 
         // Equity = margin +/- pnl, floored at zero (loss is capped at the margin).
+        // Profit is capped (transparent house-solvency rule): at most maxProfitBps of the
+        // position's own margin AND at most maxPayoutPoolBps of the pool's free liquidity.
+        // The pool leg guarantees a close can never revert for lack of funds.
         uint256 equity;
         if (pnl >= 0) {
-            equity = p.margin + uint256(pnl);
+            uint256 profit = uint256(pnl);
+            uint256 capMargin = (p.margin * maxProfitBps) / BPS_DENOMINATOR;
+            uint256 capPool = (vault.freeLiquidity() * maxPayoutPoolBps) / BPS_DENOMINATOR;
+            uint256 cap = capMargin < capPool ? capMargin : capPool;
+            if (profit > cap) profit = cap;
+            pnl = int256(profit); // report the realized (capped) pnl
+            equity = p.margin + profit;
         } else {
             uint256 loss = uint256(-pnl);
             equity = loss >= p.margin ? 0 : p.margin - loss;

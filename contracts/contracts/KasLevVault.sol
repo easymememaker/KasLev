@@ -56,10 +56,17 @@ contract KasLevVault is Ownable, ReentrancyGuard {
     /// @notice True once the developer has reclaimed the principal (can only happen once).
     bool public principalWithdrawn;
 
+    /// @notice Total margin currently escrowed for OPEN positions (wei of KAS).
+    /// @dev Increased on {depositMargin}, decreased on {releaseEscrow} at settlement. This is
+    ///      money owed to traders, NOT pool liquidity — every privileged outflow (developer
+    ///      principal, liquidation share) treats it as untouchable.
+    uint256 public escrowedMargin;
+
     event PerpsSet(address indexed perps);
     event InitialLiquidityDeposited(address indexed developer, uint256 amount, uint256 lockExpiry);
     event LiquidityAdded(address indexed from, uint256 amount);
     event MarginReceived(address indexed trader, uint256 amount);
+    event EscrowReleased(uint256 amount, uint256 escrowedMarginAfter);
     event PayoutSettled(address indexed to, uint256 amount);
     event LiquidationSharePaid(address indexed to, uint256 requested, uint256 paid);
     event DeveloperPrincipalWithdrawn(address indexed developer, uint256 amount);
@@ -142,7 +149,17 @@ contract KasLevVault is Ownable, ReentrancyGuard {
      */
     function depositMargin(address trader) external payable onlyPerps {
         if (msg.value == 0) revert ZeroAmount();
+        escrowedMargin += msg.value;
         emit MarginReceived(trader, msg.value);
+    }
+
+    /**
+     * @notice Release a settled position's margin from escrow accounting. Perps engine only,
+     *         called exactly once per position at settlement (guarded by the closed flag).
+     */
+    function releaseEscrow(uint256 amount) external onlyPerps {
+        escrowedMargin = escrowedMargin >= amount ? escrowedMargin - amount : 0;
+        emit EscrowReleased(amount, escrowedMargin);
     }
 
     // ---------------------------------------------------------------------
@@ -179,12 +196,15 @@ contract KasLevVault is Ownable, ReentrancyGuard {
         returns (uint256 paid)
     {
         if (amount == 0) return 0;
+        // The floor protects BOTH the seed principal (until reclaimed) and every open
+        // position's escrowed margin: the share is only skimmed from profit above them.
+        uint256 floor_ = (principalWithdrawn ? 0 : developerPrincipal) + escrowedMargin;
         uint256 bal = address(this).balance;
-        if (bal <= developerPrincipal) {
+        if (bal <= floor_) {
             emit LiquidationSharePaid(to, amount, 0);
-            return 0; // pool at/below seed -> skim nothing, let it rebuild first
+            return 0; // pool at/below its obligations -> skim nothing, let it rebuild first
         }
-        uint256 headroom = bal - developerPrincipal;
+        uint256 headroom = bal - floor_;
         paid = amount <= headroom ? amount : headroom;
         if (paid > 0) payable(to).sendValue(paid);
         emit LiquidationSharePaid(to, amount, paid);
@@ -193,9 +213,10 @@ contract KasLevVault is Ownable, ReentrancyGuard {
     /**
      * @notice Developer reclaims the original seed principal — and only that — after the
      *         lock expires. Enforces spec rule: "may withdraw only the original amount".
-     * @dev Withdraws min(principal, balance): can never exceed the principal (protocol
-     *      profits stay in the pool) and never reverts-lock funds if the pool drew down
-     *      below principal while acting as counterparty (developer bore that LP risk).
+     * @dev Withdraws min(principal, FREE liquidity): can never exceed the principal
+     *      (protocol profits stay in the pool), never touches margin escrowed for open
+     *      positions, and never reverts-lock funds if the pool drew down below principal
+     *      while acting as counterparty (developer bore that LP risk).
      */
     function withdrawDeveloperPrincipal() external nonReentrant {
         if (msg.sender != developer) revert OnlyDeveloper();
@@ -205,8 +226,8 @@ contract KasLevVault is Ownable, ReentrancyGuard {
 
         principalWithdrawn = true;
 
-        uint256 bal = address(this).balance;
-        uint256 amount = developerPrincipal <= bal ? developerPrincipal : bal;
+        uint256 avail = freeLiquidity();
+        uint256 amount = developerPrincipal <= avail ? developerPrincipal : avail;
         if (amount > 0) {
             payable(developer).sendValue(amount);
         }
@@ -220,6 +241,12 @@ contract KasLevVault is Ownable, ReentrancyGuard {
     /// @notice Total KAS currently held by the vault (seed + retained P&L + escrowed margin).
     function totalLiquidity() external view returns (uint256) {
         return address(this).balance;
+    }
+
+    /// @notice Pool liquidity NOT owed to open positions (balance minus escrowed margin).
+    function freeLiquidity() public view returns (uint256) {
+        uint256 bal = address(this).balance;
+        return bal > escrowedMargin ? bal - escrowedMargin : 0;
     }
 
     /// @notice Seconds remaining until the developer principal unlocks (0 once unlocked).

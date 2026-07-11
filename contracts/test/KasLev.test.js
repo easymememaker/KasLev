@@ -328,3 +328,84 @@ describe('KasLevPerps — trading', () => {
     expect(await perps.liqShareBps()).to.equal(1000);
   });
 });
+
+describe('House solvency — payout caps & escrow protection', () => {
+  it('caps a huge win at maxPayoutPoolBps of free liquidity (no trapped winners)', async () => {
+    const { perps, oracle, trader } = await loadFixture(deployFixture);
+    const margin = ethers.parseEther('100');
+    const { total } = await perps.quoteOpenCost(10, margin);
+    await perps.connect(trader).openPosition(KAS_ID, 10, true, margin, { value: total });
+
+    // +1000% price move at 10x -> raw profit 10,000 KAS on a 5,100 KAS pool. Uncapped this
+    // would drain (and previously brick) the vault. Cap = min(900% x 100, 2% x 5,100) = 102.
+    await oracle.setPrice(KAS_ID, ethers.parseEther('0.33'));
+
+    const balBefore = await ethers.provider.getBalance(trader.address);
+    const tx = await perps.connect(trader).closePosition(1);
+    const rc = await tx.wait();
+    const gas = rc.gasUsed * rc.gasPrice;
+    const balAfter = await ethers.provider.getBalance(trader.address);
+
+    // equity = 100 + 102 = 202, close fee 1 -> payout 201. Close succeeds, pool survives.
+    expect(balAfter - balBefore + gas).to.equal(ethers.parseEther('201'));
+  });
+
+  it('caps profit at maxProfitBps of the position margin', async () => {
+    const { perps, oracle, trader } = await loadFixture(deployFixture);
+    await perps.setPayoutCaps(1000, 2000); // 10% of margin, 20% of pool
+    const margin = ethers.parseEther('100');
+    const { total } = await perps.quoteOpenCost(10, margin);
+    await perps.connect(trader).openPosition(KAS_ID, 10, true, margin, { value: total });
+    await oracle.setPrice(KAS_ID, ethers.parseEther('0.033')); // raw +100 profit
+
+    const balBefore = await ethers.provider.getBalance(trader.address);
+    const tx = await perps.connect(trader).closePosition(1);
+    const rc = await tx.wait();
+    const gas = rc.gasUsed * rc.gasPrice;
+    // profit capped at 10 -> equity 110, fee 1 -> payout 109
+    expect((await ethers.provider.getBalance(trader.address)) - balBefore + gas).to.equal(ethers.parseEther('109'));
+  });
+
+  it('rejects invalid payout caps', async () => {
+    const { perps } = await loadFixture(deployFixture);
+    await expect(perps.setPayoutCaps(0, 200)).to.be.revertedWithCustomError(perps, 'BadPayoutCaps');
+    await expect(perps.setPayoutCaps(90000, 2001)).to.be.revertedWithCustomError(perps, 'BadPayoutCaps');
+  });
+
+  it('developer principal withdrawal can NEVER touch open-position escrow', async () => {
+    const { perps, oracle, vault, developer, trader, keeper } = await loadFixture(deployFixture);
+    await perps.setPayoutCaps(90000, 2000); // allow a 20%-of-pool win to drain the pool a bit
+
+    // Trader A opens and STAYS OPEN (their 100 KAS margin is escrow, not pool money).
+    const marginA = ethers.parseEther('100');
+    const qA = await perps.quoteOpenCost(10, marginA);
+    await perps.connect(trader).openPosition(KAS_ID, 10, false, marginA, { value: qA.total }); // SHORT
+
+    // Trader B wins big and cashes out, pulling the pool below the seed principal.
+    const marginB = ethers.parseEther('500');
+    const qB = await perps.quoteOpenCost(10, marginB);
+    await perps.connect(keeper).openPosition(KAS_ID, 10, true, marginB, { value: qB.total }); // LONG
+    await oracle.setPrice(KAS_ID, ethers.parseEther('0.033')); // +10%
+    await perps.connect(keeper).closePosition(2); // B: +500 profit (within caps), payout 999
+
+    // Pool: 5000 + 100 + 500 - 1(feeB) - 999(payoutB) = 4600; escrow (A) = 100.
+    expect(await vault.totalLiquidity()).to.equal(ethers.parseEther('4600'));
+    expect(await vault.escrowedMargin()).to.equal(ethers.parseEther('100'));
+    expect(await vault.freeLiquidity()).to.equal(ethers.parseEther('4500'));
+
+    await time.increase(LOCK + 1n);
+    const balBefore = await ethers.provider.getBalance(developer.address);
+    const tx = await vault.connect(developer).withdrawDeveloperPrincipal();
+    const rc = await tx.wait();
+    const gas = rc.gasUsed * rc.gasPrice;
+
+    // Developer gets only the FREE liquidity (4500), not A's escrowed 100.
+    expect((await ethers.provider.getBalance(developer.address)) - balBefore + gas).to.equal(ethers.parseEther('4500'));
+    expect(await vault.totalLiquidity()).to.equal(ethers.parseEther('100')); // exactly A's escrow
+
+    // And trader A can still settle against their escrow afterwards (fresh price needed
+    // after the 100-day time jump made the previous report stale).
+    await oracle.setPrice(KAS_ID, ethers.parseEther('0.033'));
+    await expect(perps.connect(trader).closePosition(1)).to.emit(perps, 'PositionClosed');
+  });
+});
