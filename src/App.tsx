@@ -24,6 +24,7 @@ import {
   getTraderPositions,
   getVaultStats,
   assetId,
+  friendlyTxError,
 } from './web3/kaslev';
 
 const INITIAL_TOKENS: Token[] = [
@@ -399,15 +400,24 @@ export default function App() {
         const remaining: Position[] = [];
 
         prevPositions.forEach((pos) => {
+          // On-chain positions are settled by the real contract + keeper (and refreshed by
+          // the on-chain sync). NEVER run the local liquidation simulation on them — doing so
+          // wiped them locally while they were still open on-chain, and the resync kept
+          // re-adding them, spamming duplicate "liquidated" alerts.
+          if (pos.id.startsWith('onchain-')) {
+            remaining.push(pos);
+            return;
+          }
+
           const tokenPrice = tokens.find((t) => t.symbol === pos.symbol)?.price || pos.currentPrice;
-          
+
           const kasPrice = tokens.find((t) => t.id === 'kas')?.price || 0.1542;
           const { pnlKAS, pnlPercentage } = calculatePnL(pos.type, pos.entryPrice, tokenPrice, pos.size, kasPrice);
 
           // Check Liquidation!
           const isLong = pos.type === 'LONG';
-          const isLiquidated = isLong 
-            ? tokenPrice <= pos.liquidationPrice 
+          const isLiquidated = isLong
+            ? tokenPrice <= pos.liquidationPrice
             : tokenPrice >= pos.liquidationPrice;
 
           if (isLiquidated) {
@@ -546,7 +556,7 @@ export default function App() {
         triggerAlert('success', `✅ ${type} opened on-chain! Tx ${txHash.substring(0, 12)}… (position #${positionId ?? '?'})`);
       } catch (err: any) {
         console.error('On-chain openPosition failed:', err);
-        triggerAlert('error', `Rejected: ${err?.shortMessage || err?.message || 'Transaction cancelled.'}`);
+        triggerAlert('error', friendlyTxError(err));
       }
       return;
     }
@@ -642,7 +652,7 @@ export default function App() {
           triggerAlert('success', `✅ Position #${chainId} closed on-chain! Tx ${txHash.substring(0, 12)}…`);
         } catch (err: any) {
           console.error('On-chain close failed:', err);
-          triggerAlert('error', `Rejected: ${err?.shortMessage || err?.message || 'Close cancelled.'}`);
+          triggerAlert('error', friendlyTxError(err));
         }
         return;
       }
@@ -711,7 +721,7 @@ export default function App() {
           }, ...prev]);
         } catch (err: any) {
           console.error('emergency close failed for', chainId, err);
-          triggerAlert('error', `Position #${chainId} emergency close ${err?.shortMessage || 'rejected'}.`);
+          triggerAlert('error', `Position #${chainId}: ${friendlyTxError(err)}`);
         }
       }
     }

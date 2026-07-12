@@ -42,6 +42,24 @@ export function assetId(symbol: string): string {
   return ethers.keccak256(ethers.toUtf8Bytes(symbol));
 }
 
+/** Turn a raw tx/revert error into a short, human-readable reason. */
+export function friendlyTxError(err: any): string {
+  if (err?.code === 4001 || err?.code === 'ACTION_REJECTED') return 'You rejected the request in your wallet.';
+  const name: string | undefined = err?.revert?.name || err?.errorName;
+  const blob = `${name || ''} ${err?.shortMessage || ''} ${err?.info?.error?.message || ''} ${err?.message || ''}`;
+  const has = (s: string) => blob.toLowerCase().includes(s.toLowerCase());
+  if (has('StalePrice') || has('ZeroPrice')) return 'Price feed is refreshing — please try again in a few seconds.';
+  if (has('NotTradeable')) return 'This market is not open for trading.';
+  if (has('InvalidLeverage')) return 'That leverage is not allowed for this market.';
+  if (has('MarginOutOfRange')) return 'Collateral amount is outside the allowed range.';
+  if (has('InsufficientValue')) return 'Not enough KAS sent to cover margin + fees.';
+  if (has('insufficient funds')) return 'Your wallet does not have enough KAS for margin + fees + gas.';
+  if (has('NotLiquidatable')) return 'Position is not liquidatable yet.';
+  if (has('AlreadyClosed')) return 'This position is already closed.';
+  if (err?.shortMessage) return err.shortMessage;
+  return err?.message?.slice(0, 120) || 'Transaction failed.';
+}
+
 /** A read-only provider that talks to the active network's RPC directly (no wallet needed). */
 export function readProvider(): JsonRpcProvider {
   return new JsonRpcProvider(getActiveNetwork().rpcUrl);

@@ -89,8 +89,8 @@ export default function TradingView({
   connectedWalletType = null,
 }: TradingViewProps) {
   // Trade setup form state
-  const [collateralInput, setCollateralInput] = useState('1000');
-  const [customLeverage, setCustomLeverage] = useState('10000'); // defaults to floor 10000x
+  const [collateralInput, setCollateralInput] = useState('10');
+  const [customLeverage, setCustomLeverage] = useState('10'); // sane default: 10x
   const [useInstantSignature, setUseInstantSignature] = useState(true);
 
   // Quick leverage action sidebar states
@@ -604,10 +604,12 @@ export default function TradingView({
               </div>
               <div className="grid grid-cols-2 gap-2" id="leverage-select-grid">
                 {[
-                  { value: 1000, label: '1,000x', desc: 'Standard Tier', fee: '5.0%', feeColor: 'text-amber-400 bg-amber-950/20 border-amber-900/30' },
-                  { value: 10000, label: '10,000x', desc: 'Premium Tier', fee: '1.0%', feeColor: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/30' },
-                  { value: 100000, label: '100,000x', desc: 'Pro Tier', fee: '2.0%', feeColor: 'text-cyan-400 bg-cyan-950/20 border-cyan-900/30' },
-                  { value: 1000000, label: '1,000,000x', desc: 'Ultimate Tier', fee: '5.0%', feeColor: 'text-rose-400 bg-rose-950/20 border-rose-900/30' },
+                  { value: 5, label: '5x', desc: 'Safe', fee: '1.0%', feeColor: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/30' },
+                  { value: 10, label: '10x', desc: 'Low risk', fee: '1.0%', feeColor: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/30' },
+                  { value: 25, label: '25x', desc: 'Medium', fee: '1.0%', feeColor: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/30' },
+                  { value: 50, label: '50x', desc: 'High', fee: '1.0%', feeColor: 'text-amber-400 bg-amber-950/20 border-amber-900/30' },
+                  { value: 100, label: '100x', desc: 'Very high', fee: '5.0%', feeColor: 'text-amber-400 bg-amber-950/20 border-amber-900/30' },
+                  { value: 1000, label: '1,000x', desc: 'Degen', fee: '5.0%', feeColor: 'text-rose-400 bg-rose-950/20 border-rose-900/30' },
                 ].map((opt) => {
                   const isSelected = parsedLeverage === opt.value;
                   return (

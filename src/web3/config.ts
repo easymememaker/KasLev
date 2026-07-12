@@ -90,6 +90,16 @@ export const PERPS_ABI = [
   'function maxPayoutPoolBps() view returns (uint256)',
   'event PositionOpened(uint256 indexed positionId, address indexed trader, bytes32 indexed assetId, bool isLong, uint256 leverage, uint256 margin, uint256 entryPrice, uint256 openFee, uint256 liquidationPrice)',
   'event PositionClosed(uint256 indexed positionId, address indexed trader, uint256 exitPrice, int256 pnl, uint256 closeFee, uint256 payout, bool liquidated)',
+  // Custom errors — declared so the UI can decode reverts into readable reasons.
+  'error ZeroPrice()',
+  'error StalePrice()',
+  'error NotTradeable()',
+  'error InvalidLeverage()',
+  'error MarginOutOfRange()',
+  'error InsufficientValue()',
+  'error NotPositionOwner()',
+  'error AlreadyClosed()',
+  'error NotLiquidatable()',
 ] as const;
 
 export const ORACLE_ABI = [
