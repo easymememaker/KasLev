@@ -394,7 +394,7 @@ export default function Navbar({
   };
 
   return (
-    <header className="bg-bg-dark/95 backdrop-blur-md border-b border-border-dark py-2.5 px-4 sticky top-0 z-50 shadow-md" id="kaslev-header">
+    <header className="bg-bg-dark border-b border-border-dark py-2.5 px-4 sticky top-0 z-50 shadow-md" id="kaslev-header">
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-x-6 gap-y-2.5">
         {/* Brand Logo & Price */}
         <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
