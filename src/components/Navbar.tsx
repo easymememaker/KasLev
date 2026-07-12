@@ -704,19 +704,18 @@ export default function Navbar({
       {/* MULTICHAIN WALLET & BRIDGE HUB MODAL */}
       {isHubOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in" id="wallet-hub-overlay">
-          <div className="bg-bg-dark border border-border-dark w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row">
-            
-            {/* LEFT COLUMN: CONNECTION & CHAIN STATE */}
-            <div className="md:w-1/2 p-6 border-r border-border-dark flex flex-col justify-between">
+          <div className="bg-bg-dark border border-border-dark w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+
+            {/* WALLET PICKER */}
+            <div className="w-full p-5 flex flex-col justify-between">
               <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <Wallet className="text-kaspa w-5 h-5" />
-                  <h3 className="font-display font-bold text-lg text-white">Non-Custodial Wallet Hub</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="text-kaspa w-5 h-5" />
+                    <h3 className="font-display font-bold text-base text-white">Connect Wallet</h3>
+                  </div>
+                  <button onClick={() => setIsHubOpen(false)} className="text-gray-500 hover:text-white text-sm font-mono">✕</button>
                 </div>
-                
-                <p className="text-xs text-gray-300 mb-6">
-                  Select a wallet provider to sync with Kaspa Mainnet L1 or direct bridging smart contracts across layer 2 rollups.
-                </p>
 
                 {/* Wallet Options */}
                 <div className="space-y-3 mb-6">
@@ -869,57 +868,17 @@ export default function Navbar({
                   </button>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {/* Offline Message */}
-                  <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-center">
-                    <span className="text-xs text-amber-300 block font-semibold mb-1">Session offline</span>
-                    <span className="text-[10px] text-gray-400 leading-relaxed block">
-                      Choose one of the wallet providers above to connect, or use the real manual address integration below.
-                    </span>
-                  </div>
-
-                  {/* Manual Address Integration */}
-                  <div className="bg-bg-darker p-4 rounded-xl border border-border-dark space-y-3 font-mono">
-                    <div className="flex items-center justify-between border-b border-border-dark pb-1.5">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Manual Address Input</span>
-                      <span className="text-[9px] text-kaspa bg-kaspa-dark/20 border border-kaspa/20 px-1.5 py-0.2 rounded font-bold uppercase">Real Connect</span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 block">REAL L1 KASPA ADDRESS (KASPA:)</label>
-                      <input
-                        type="text"
-                        value={manualL1Input}
-                        onChange={(e) => setManualL1Input(e.target.value)}
-                        placeholder="e.g. kaspa:qqzjw5ur7fyq9q7la..."
-                        className="w-full bg-bg-dark text-white text-[11px] px-2.5 py-2 rounded-lg border border-border-dark focus:border-kaspa focus:outline-none transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[9px] text-gray-500 block">REAL L2 EVM ADDRESS (0X)</label>
-                      <input
-                        type="text"
-                        value={manualL2Input}
-                        onChange={(e) => setManualL2Input(e.target.value)}
-                        placeholder="e.g. 0x7F268b82Ac901E9b7c84D76de02D70..."
-                        className="w-full bg-bg-dark text-white text-[11px] px-2.5 py-2 rounded-lg border border-border-dark focus:border-kaspa focus:outline-none transition-all"
-                      />
-                    </div>
-
-                    <button
-                      onClick={handleManualConnect}
-                      className="w-full bg-kaspa hover:bg-kaspa-light text-bg-darker font-bold py-2 rounded-lg text-xs transition-all uppercase tracking-wider cursor-pointer text-center"
-                    >
-                      Connect Real Custom Wallet
-                    </button>
-                  </div>
+                <div className="p-3 bg-bg-darker border border-border-dark rounded-xl text-center">
+                  <span className="text-[11px] text-gray-400 leading-relaxed block">
+                    Pick a wallet above. MetaMask connects to the Kaspa EVM L2 for real trading.
+                  </span>
                 </div>
               )}
             </div>
 
-            {/* RIGHT COLUMN: NETWORKS & L2 CROSS-CHAIN BRIDGE */}
-            <div className="md:w-1/2 p-6 bg-[#0c0f17] flex flex-col justify-between">
+            {/* RIGHT COLUMN: NETWORKS & L2 CROSS-CHAIN BRIDGE — hidden (bridge is simulated;
+                network switching lives in the header health widget). */}
+            <div className="hidden">
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">

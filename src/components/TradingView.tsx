@@ -264,7 +264,7 @@ export default function TradingView({
   // House-edge parameters, read once per network from the contract itself so the
   // disclosure below can never drift from what's actually deployed.
   const [houseRules, setHouseRules] = useState<HouseRules | null>(null);
-  const [showRules, setShowRules] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   useEffect(() => {
     if (!onChainNetwork) {
       setHouseRules(null);
@@ -650,50 +650,24 @@ export default function TradingView({
               </div>
             </div>
 
-            {/* Compact cost + liquidation summary. Detailed rules are one tap away. */}
-            <div className="bg-bg-darker p-2.5 rounded-lg border border-border-dark space-y-1.5 text-[11px] font-mono">
-              <div className="flex justify-between text-gray-400">
-                <span>Fee ({currentFeePercent}%){onChainNetwork ? ' + keeper' : ''}</span>
-                <span className="text-white font-semibold">
+            {/* Minimal summary — one number that matters; everything else is in the Details modal. */}
+            <div className="bg-bg-darker px-3 py-2 rounded-lg border border-border-dark flex items-center justify-between">
+              <div className="leading-tight">
+                <span className="text-gray-500 text-[9px] font-mono uppercase tracking-wider block">Total to open</span>
+                <span className="text-kaspa font-bold text-sm font-mono">
                   {onChainNetwork && chainQuote
-                    ? (chainQuote.openFeeKas + chainQuote.keeperFeeKas).toFixed(2)
-                    : (chainQuote?.openFeeKas ?? totalOpenFee).toFixed(2)} {nativeSymbol}
+                    ? chainQuote.totalKas.toFixed(2)
+                    : (collateralNum + (chainQuote?.openFeeKas ?? totalOpenFee)).toFixed(2)}{' '}
+                  {nativeSymbol}
                 </span>
               </div>
-              {onChainNetwork && (
-                <div className="flex justify-between text-gray-300 border-t border-border-dark/40 pt-1.5">
-                  <span>Total on open</span>
-                  <span className="text-kaspa font-bold">{chainQuote ? `${chainQuote.totalKas.toFixed(2)} ${nativeSymbol}` : '…'}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-gray-400">
-                <span>Liq. price (L / S)</span>
-                <span className="text-amber-400 font-semibold">${estLiquidation.toFixed(6)} / ${estLiquidationShort.toFixed(6)}</span>
-              </div>
-
-              {onChainNetwork && (
-                <button
-                  type="button"
-                  onClick={() => setShowRules((v) => !v)}
-                  className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-kaspa transition-colors pt-0.5"
-                >
-                  <Info className="w-3 h-3" /> House rules &amp; caps {showRules ? '▲' : '▼'}
-                </button>
-              )}
-              {onChainNetwork && showRules && (
-                <div className="text-[10px] text-gray-400 leading-relaxed border-t border-border-dark/40 pt-1.5">
-                  Close fee = same {currentFeePercent}%. On liquidation your margin goes to the pool
-                  ({houseRules ? houseRules.liqSharePct : 5}% is the disclosed house share). Max profit per
-                  position: {houseRules ? houseRules.maxProfitPct : 900}% of margin, capped at {houseRules ? houseRules.maxPayoutPoolPct : 2}% of pool.
-                </div>
-              )}
-
-              {parsedLeverage >= 10000 && (
-                <div className="flex gap-2 bg-amber-500/5 text-amber-300/90 p-2.5 rounded-lg border border-amber-500/10 text-[10px] mt-2">
-                  <HelpCircle className="w-4 h-4 shrink-0 text-amber-400/90" />
-                  <span>Higher leverage multiplies risk as well as returns. Small market changes can result in rapid liquidation. Maintain sufficient collateral!</span>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowDetails(true)}
+                className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-kaspa border border-border-dark hover:border-kaspa/40 rounded-lg px-2.5 py-1.5 transition-colors"
+              >
+                <Info className="w-3.5 h-3.5" /> Fees &amp; rules
+              </button>
             </div>
 
             {/* Fast Execution Mode toggle */}
@@ -973,6 +947,71 @@ export default function TradingView({
           </>
         )}
       </AnimatePresence>
+
+      {/* FEES & HOUSE RULES — small transparency window, opened from the trade panel */}
+      {showDetails && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowDetails(false)}
+        >
+          <div
+            className="bg-bg-dark border border-border-dark rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-white text-sm flex items-center gap-2">
+                <Info className="w-4 h-4 text-kaspa" /> Fees &amp; House Rules
+              </h3>
+              <button onClick={() => setShowDetails(false)} className="text-gray-500 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5 text-[11px] font-mono">
+              <div className="flex justify-between text-gray-400">
+                <span>Open fee ({currentFeePercent}%)</span>
+                <span className="text-white">{(chainQuote?.openFeeKas ?? totalOpenFee).toFixed(2)} {nativeSymbol}</span>
+              </div>
+              {onChainNetwork && (
+                <div className="flex justify-between text-gray-400">
+                  <span>Keeper fee</span>
+                  <span className="text-white">{chainQuote ? chainQuote.keeperFeeKas.toFixed(2) : '…'} {nativeSymbol}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-gray-300 border-t border-border-dark/50 pt-1.5">
+                <span>Total to open</span>
+                <span className="text-kaspa font-bold">
+                  {onChainNetwork && chainQuote
+                    ? chainQuote.totalKas.toFixed(2)
+                    : (collateralNum + (chainQuote?.openFeeKas ?? totalOpenFee)).toFixed(2)} {nativeSymbol}
+                </span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Liq. price — Long</span>
+                <span className="text-amber-400">${estLiquidation.toFixed(6)}</span>
+              </div>
+              <div className="flex justify-between text-gray-400">
+                <span>Liq. price — Short</span>
+                <span className="text-amber-400">${estLiquidationShort.toFixed(6)}</span>
+              </div>
+            </div>
+
+            {onChainNetwork && (
+              <div className="text-[10px] text-gray-400 leading-relaxed border-t border-border-dark/50 pt-2.5">
+                Close charges the same {currentFeePercent}% fee. On liquidation your margin goes to the pool;{' '}
+                {houseRules ? houseRules.liqSharePct : 5}% of it is the protocol's disclosed house share. Max profit per
+                position is {houseRules ? houseRules.maxProfitPct : 900}% of margin, capped at{' '}
+                {houseRules ? houseRules.maxPayoutPoolPct : 2}% of the pool — read live from the contract.
+              </div>
+            )}
+
+            <div className="flex gap-2 text-amber-300/90 text-[10px] leading-tight bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
+              <HelpCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+              <span>High leverage multiplies risk — a small move can liquidate you fast. Keep enough collateral.</span>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
