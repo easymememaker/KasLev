@@ -15,7 +15,16 @@ import { Token, Position, LiquidityPool, AutomatedStrategy, TradeHistoryItem } f
 import { Shield, Sparkles, AlertCircle, CheckCircle2, RefreshCw, Radio, Bell } from 'lucide-react';
 import { useKaspaPrice } from './hooks/useKaspaPrice';
 import { getFeePercentage, calculateLiquidationPrice, calculatePnL, calculatePositionSize } from './utils/math';
-import { openPositionOnChain, closePositionOnChain, setActiveNetwork, getActiveNetwork, isSupportedNetwork } from './web3/kaslev';
+import {
+  openPositionOnChain,
+  closePositionOnChain,
+  setActiveNetwork,
+  getActiveNetwork,
+  isSupportedNetwork,
+  getTraderPositions,
+  getVaultStats,
+  assetId,
+} from './web3/kaslev';
 
 const INITIAL_TOKENS: Token[] = [
   { id: 'kas', symbol: 'KAS', name: 'Kaspa', price: 0.15420, change24h: 3.42, decimals: 8 },
@@ -209,6 +218,96 @@ export default function App() {
     const saved = localStorage.getItem('kaslev_history');
     return saved ? JSON.parse(saved) : INITIAL_HISTORY;
   });
+
+  // ------------------------------------------------------------------
+  // ON-CHAIN SYNC: positions of the connected wallet, straight from the
+  // active L2's contracts. This is the source of truth — it survives page
+  // reloads and reflects liquidations done by keepers. Simulated (non
+  // `onchain-`) positions are left untouched.
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    if (!isWalletConnected || connectedWalletType !== 'METAMASK' || !isSupportedNetwork(activeChain)) return;
+    let cancelled = false;
+
+    const sync = async () => {
+      try {
+        // Map on-chain assetIds (keccak of the symbol) back to readable symbols.
+        const idToSymbol = new Map<string, string>();
+        for (const t of tokens) idToSymbol.set(assetId(t.symbol).toLowerCase(), t.symbol);
+        const chainPositions = await getTraderPositions(userL2Address, (id) =>
+          idToSymbol.get(id.toLowerCase()) || 'KAS',
+        );
+        if (cancelled) return;
+
+        setPositions((prev) => {
+          const sim = prev.filter((p) => !p.id.startsWith('onchain-'));
+          const mapped: Position[] = chainPositions.map((cp) => {
+            const existing = prev.find((p) => p.id === `onchain-${cp.id}`);
+            const notional = cp.marginKas * cp.leverage;
+            // Recover the current price implied by the on-chain PnL.
+            const move = notional > 0 ? cp.pnlKas / notional : 0;
+            const currentPrice = cp.entryPrice * (1 + (cp.isLong ? move : -move));
+            return {
+              id: `onchain-${cp.id}`,
+              symbol: cp.symbol,
+              type: cp.isLong ? 'LONG' : 'SHORT',
+              leverage: cp.leverage,
+              size: parseFloat(notional.toFixed(2)),
+              margin: cp.marginKas,
+              entryPrice: cp.entryPrice,
+              liquidationPrice: cp.liquidationPrice,
+              currentPrice,
+              pnl: cp.pnlKas,
+              pnlPercentage: cp.marginKas > 0 ? (cp.pnlKas / cp.marginKas) * 100 : 0,
+              feePaid: cp.marginKas * (getFeePercentage(cp.leverage) / 100),
+              timestamp: existing?.timestamp ?? Date.now(),
+            };
+          });
+          return [...sim, ...mapped];
+        });
+      } catch (err) {
+        console.warn('on-chain position sync failed:', err);
+      }
+    };
+
+    sync();
+    const interval = setInterval(sync, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isWalletConnected, connectedWalletType, activeChain, userL2Address, tokens]);
+
+  // ON-CHAIN SYNC: live vault stats (pool size, locked seed, unlock countdown)
+  // for the Protocol Audits tab. Read-only — works without a wallet.
+  useEffect(() => {
+    if (!isSupportedNetwork(activeChain)) return;
+    let cancelled = false;
+
+    const sync = async () => {
+      try {
+        const stats = await getVaultStats();
+        if (cancelled) return;
+        setPool((prev) => ({
+          ...prev,
+          totalKAS: stats.totalLiquidity,
+          developerContribution: stats.developerPrincipal,
+          lockedKAS: stats.isUnlocked ? 0 : stats.developerPrincipal,
+          lockExpiryDays: Math.ceil(stats.daysUntilUnlock),
+          isUnlocked: stats.isUnlocked,
+        }));
+      } catch (err) {
+        console.warn('vault stats sync failed:', err);
+      }
+    };
+
+    sync();
+    const interval = setInterval(sync, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeChain]);
 
   // Floating notifications
   const [alerts, setAlerts] = useState<{ id: string; type: 'success' | 'error' | 'info'; text: string }[]>([]);

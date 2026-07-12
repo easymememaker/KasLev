@@ -119,6 +119,54 @@ export async function getPoolLiquidity(): Promise<number> {
   return Number(ethers.formatEther(await vault.totalLiquidity()));
 }
 
+export interface HouseRules {
+  liqSharePct: number;
+  maxProfitPct: number;
+  maxPayoutPoolPct: number;
+}
+
+/** The transparent house-edge parameters, read live from the active network's contract. */
+export async function getHouseRules(): Promise<HouseRules> {
+  const perps = perpsWith(readProvider());
+  const [liq, prof, pool] = await Promise.all([
+    perps.liqShareBps(),
+    perps.maxProfitBps(),
+    perps.maxPayoutPoolBps(),
+  ]);
+  return {
+    liqSharePct: Number(liq) / 100,
+    maxProfitPct: Number(prof) / 100,
+    maxPayoutPoolPct: Number(pool) / 100,
+  };
+}
+
+export interface VaultStats {
+  totalLiquidity: number;
+  freeLiquidity: number;
+  developerPrincipal: number;
+  daysUntilUnlock: number;
+  isUnlocked: boolean;
+}
+
+/** Live vault accounting from the active network (read-only, no wallet needed). */
+export async function getVaultStats(): Promise<VaultStats> {
+  const vault = new Contract(getActiveNetwork().contracts.KasLevVault, VAULT_ABI as unknown as string[], readProvider());
+  const [total, free, principal, secs, unlocked] = await Promise.all([
+    vault.totalLiquidity(),
+    vault.freeLiquidity(),
+    vault.developerPrincipal(),
+    vault.timeUntilUnlock(),
+    vault.isUnlocked(),
+  ]);
+  return {
+    totalLiquidity: Number(ethers.formatEther(total)),
+    freeLiquidity: Number(ethers.formatEther(free)),
+    developerPrincipal: Number(ethers.formatEther(principal)),
+    daysUntilUnlock: Number(secs) / 86400,
+    isUnlocked: unlocked,
+  };
+}
+
 export interface OnChainPosition {
   id: number;
   symbol: string;

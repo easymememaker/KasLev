@@ -9,6 +9,7 @@ import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveCo
 import { Zap, AlertOctagon, TrendingUp, TrendingDown, Layers, ShieldAlert, Swords, HelpCircle, Flame, X, Sparkles, Info } from 'lucide-react';
 import { Token, Position, OrderBookItem, TradeHistoryItem } from '../types';
 import { getFeePercentage, calculateLiquidationPrice, calculatePositionSize } from '../utils/math';
+import { quoteOpenCost, isSupportedNetwork, getActiveNetwork, getHouseRules, HouseRules } from '../web3/kaslev';
 
 interface TradingViewProps {
   tokens: Token[];
@@ -234,6 +235,48 @@ export default function TradingView({
   const collateralNum = parseFloat(collateralInput) || 0;
   const rawSizeKAS = collateralNum * parsedLeverage;
   const totalOpenFee = collateralNum * (currentFeePercent / 100);
+
+  // Live on-chain cost quote (dev fee + keeper fee + total) for full transparency:
+  // every charge the contract will take is shown before the user signs anything.
+  const [chainQuote, setChainQuote] = useState<{ openFeeKas: number; keeperFeeKas: number; totalKas: number } | null>(null);
+  const onChainNetwork = isSupportedNetwork(activeChain);
+  useEffect(() => {
+    if (!onChainNetwork || collateralNum <= 0 || parsedLeverage <= 0) {
+      setChainQuote(null);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const q = await quoteOpenCost(parsedLeverage, collateralNum);
+        if (!cancelled) setChainQuote(q);
+      } catch {
+        if (!cancelled) setChainQuote(null);
+      }
+    }, 400); // debounce while the user types
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [onChainNetwork, activeChain, collateralNum, parsedLeverage]);
+  const nativeSymbol = onChainNetwork ? getActiveNetwork().nativeCurrency.symbol : 'KAS';
+
+  // House-edge parameters, read once per network from the contract itself so the
+  // disclosure below can never drift from what's actually deployed.
+  const [houseRules, setHouseRules] = useState<HouseRules | null>(null);
+  useEffect(() => {
+    if (!onChainNetwork) {
+      setHouseRules(null);
+      return;
+    }
+    let cancelled = false;
+    getHouseRules()
+      .then((r) => !cancelled && setHouseRules(r))
+      .catch(() => !cancelled && setHouseRules(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [onChainNetwork, activeChain]);
 
   // Quick leverage preset triggers
   const setLeveragePreset = (val: number) => {
@@ -605,15 +648,31 @@ export default function TradingView({
               </div>
             </div>
 
-            {/* Live Fee Details and Liquidation Estimate */}
+            {/* Live Fee Details and Liquidation Estimate — every protocol charge, up front */}
             <div className="bg-bg-darker p-3 rounded-lg border border-border-dark space-y-2 text-[11px] font-mono text-gray-400">
               <div className="flex justify-between">
                 <span>Protocol Transaction Fee ({currentFeePercent}%):</span>
-                <span className="text-white font-semibold">{totalOpenFee.toFixed(2)} KAS</span>
+                <span className="text-white font-semibold">{(chainQuote?.openFeeKas ?? totalOpenFee).toFixed(2)} {nativeSymbol}</span>
               </div>
+              {onChainNetwork && (
+                <>
+                  <div className="flex justify-between">
+                    <span>Keeper Fee (oracle & liquidation upkeep):</span>
+                    <span className="text-white font-semibold">
+                      {chainQuote ? `${chainQuote.keeperFeeKas.toFixed(2)} ${nativeSymbol}` : '…'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-border-dark/50 pt-1.5">
+                    <span className="text-gray-300">Total sent on open (margin + all fees):</span>
+                    <span className="text-kaspa font-bold">
+                      {chainQuote ? `${chainQuote.totalKas.toFixed(2)} ${nativeSymbol}` : '…'}
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between">
                 <span>Position size:</span>
-                <span className="text-white font-semibold">{(rawSizeKAS).toLocaleString()} KAS</span>
+                <span className="text-white font-semibold">{(rawSizeKAS).toLocaleString()} {nativeSymbol}</span>
               </div>
               <div className="flex justify-between">
                 <span>Long Liquidation Estimate:</span>
@@ -624,6 +683,18 @@ export default function TradingView({
                 <span className="text-amber-400 font-semibold">${estLiquidationShort.toFixed(6)}</span>
               </div>
               
+              {onChainNetwork && (
+                <div className="flex gap-2 bg-bg-dark/60 text-gray-400 p-2.5 rounded-lg border border-border-dark/60 text-[10px] mt-2">
+                  <Info className="w-4 h-4 shrink-0 text-kaspa/80" />
+                  <span>
+                    Transparent house rules (live from the contract): closing charges the same {currentFeePercent}% fee.
+                    If liquidated, your margin goes to the liquidity pool and {houseRules ? houseRules.liqSharePct : 5}% of
+                    it is the protocol's disclosed house share. Max profit per position:{' '}
+                    {houseRules ? houseRules.maxProfitPct : 900}% of margin or {houseRules ? houseRules.maxPayoutPoolPct : 2}%
+                    of pool free liquidity, whichever is lower.
+                  </span>
+                </div>
+              )}
               {parsedLeverage >= 10000 && (
                 <div className="flex gap-2 bg-amber-500/5 text-amber-300/90 p-2.5 rounded-lg border border-amber-500/10 text-[10px] mt-2">
                   <HelpCircle className="w-4 h-4 shrink-0 text-amber-400/90" />

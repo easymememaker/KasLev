@@ -85,6 +85,9 @@ export const PERPS_ABI = [
   'function currentPnL(uint256 positionId) view returns (int256)',
   'function liquidationPrice(uint256 positionId) view returns (uint256)',
   'function isLiquidatable(uint256 positionId) view returns (bool)',
+  'function liqShareBps() view returns (uint256)',
+  'function maxProfitBps() view returns (uint256)',
+  'function maxPayoutPoolBps() view returns (uint256)',
   'event PositionOpened(uint256 indexed positionId, address indexed trader, bytes32 indexed assetId, bool isLong, uint256 leverage, uint256 margin, uint256 entryPrice, uint256 openFee, uint256 liquidationPrice)',
   'event PositionClosed(uint256 indexed positionId, address indexed trader, uint256 exitPrice, int256 pnl, uint256 closeFee, uint256 payout, bool liquidated)',
 ] as const;
