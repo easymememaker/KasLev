@@ -264,6 +264,7 @@ export default function TradingView({
   // House-edge parameters, read once per network from the contract itself so the
   // disclosure below can never drift from what's actually deployed.
   const [houseRules, setHouseRules] = useState<HouseRules | null>(null);
+  const [showRules, setShowRules] = useState(false);
   useEffect(() => {
     if (!onChainNetwork) {
       setHouseRules(null);
@@ -649,53 +650,44 @@ export default function TradingView({
               </div>
             </div>
 
-            {/* Live Fee Details and Liquidation Estimate — every protocol charge, up front */}
-            <div className="bg-bg-darker p-3 rounded-lg border border-border-dark space-y-2 text-[11px] font-mono text-gray-400">
-              <div className="flex justify-between">
-                <span>Protocol Transaction Fee ({currentFeePercent}%):</span>
-                <span className="text-white font-semibold">{(chainQuote?.openFeeKas ?? totalOpenFee).toFixed(2)} {nativeSymbol}</span>
+            {/* Compact cost + liquidation summary. Detailed rules are one tap away. */}
+            <div className="bg-bg-darker p-2.5 rounded-lg border border-border-dark space-y-1.5 text-[11px] font-mono">
+              <div className="flex justify-between text-gray-400">
+                <span>Fee ({currentFeePercent}%){onChainNetwork ? ' + keeper' : ''}</span>
+                <span className="text-white font-semibold">
+                  {onChainNetwork && chainQuote
+                    ? (chainQuote.openFeeKas + chainQuote.keeperFeeKas).toFixed(2)
+                    : (chainQuote?.openFeeKas ?? totalOpenFee).toFixed(2)} {nativeSymbol}
+                </span>
               </div>
               {onChainNetwork && (
-                <>
-                  <div className="flex justify-between">
-                    <span>Keeper Fee (oracle & liquidation upkeep):</span>
-                    <span className="text-white font-semibold">
-                      {chainQuote ? `${chainQuote.keeperFeeKas.toFixed(2)} ${nativeSymbol}` : '…'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between border-t border-border-dark/50 pt-1.5">
-                    <span className="text-gray-300">Total sent on open (margin + all fees):</span>
-                    <span className="text-kaspa font-bold">
-                      {chainQuote ? `${chainQuote.totalKas.toFixed(2)} ${nativeSymbol}` : '…'}
-                    </span>
-                  </div>
-                </>
-              )}
-              <div className="flex justify-between">
-                <span>Position size:</span>
-                <span className="text-white font-semibold">{(rawSizeKAS).toLocaleString()} {nativeSymbol}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Long Liquidation Estimate:</span>
-                <span className="text-amber-400 font-semibold">${estLiquidation.toFixed(6)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Short Liquidation Estimate:</span>
-                <span className="text-amber-400 font-semibold">${estLiquidationShort.toFixed(6)}</span>
-              </div>
-              
-              {onChainNetwork && (
-                <div className="flex gap-2 bg-bg-dark/60 text-gray-400 p-2.5 rounded-lg border border-border-dark/60 text-[10px] mt-2">
-                  <Info className="w-4 h-4 shrink-0 text-kaspa/80" />
-                  <span>
-                    Transparent house rules (live from the contract): closing charges the same {currentFeePercent}% fee.
-                    If liquidated, your margin goes to the liquidity pool and {houseRules ? houseRules.liqSharePct : 5}% of
-                    it is the protocol's disclosed house share. Max profit per position:{' '}
-                    {houseRules ? houseRules.maxProfitPct : 900}% of margin or {houseRules ? houseRules.maxPayoutPoolPct : 2}%
-                    of pool free liquidity, whichever is lower.
-                  </span>
+                <div className="flex justify-between text-gray-300 border-t border-border-dark/40 pt-1.5">
+                  <span>Total on open</span>
+                  <span className="text-kaspa font-bold">{chainQuote ? `${chainQuote.totalKas.toFixed(2)} ${nativeSymbol}` : '…'}</span>
                 </div>
               )}
+              <div className="flex justify-between text-gray-400">
+                <span>Liq. price (L / S)</span>
+                <span className="text-amber-400 font-semibold">${estLiquidation.toFixed(6)} / ${estLiquidationShort.toFixed(6)}</span>
+              </div>
+
+              {onChainNetwork && (
+                <button
+                  type="button"
+                  onClick={() => setShowRules((v) => !v)}
+                  className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-kaspa transition-colors pt-0.5"
+                >
+                  <Info className="w-3 h-3" /> House rules &amp; caps {showRules ? '▲' : '▼'}
+                </button>
+              )}
+              {onChainNetwork && showRules && (
+                <div className="text-[10px] text-gray-400 leading-relaxed border-t border-border-dark/40 pt-1.5">
+                  Close fee = same {currentFeePercent}%. On liquidation your margin goes to the pool
+                  ({houseRules ? houseRules.liqSharePct : 5}% is the disclosed house share). Max profit per
+                  position: {houseRules ? houseRules.maxProfitPct : 900}% of margin, capped at {houseRules ? houseRules.maxPayoutPoolPct : 2}% of pool.
+                </div>
+              )}
+
               {parsedLeverage >= 10000 && (
                 <div className="flex gap-2 bg-amber-500/5 text-amber-300/90 p-2.5 rounded-lg border border-amber-500/10 text-[10px] mt-2">
                   <HelpCircle className="w-4 h-4 shrink-0 text-amber-400/90" />
