@@ -71,6 +71,7 @@ export default function Navbar({
 }: NavbarProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [isHubOpen, setIsHubOpen] = useState(false);
+  const [isTransparencyOpen, setIsTransparencyOpen] = useState(false);
 
   // Bridging Interactive States
   const [bridgeDirection, setBridgeDirection] = useState<'L1_TO_L2' | 'L2_TO_L1'>('L1_TO_L2');
@@ -661,45 +662,84 @@ export default function Navbar({
             <span className="text-gray-300">{getChainName(activeChain)}</span>
           </div>
 
+          {/* Transparency (protocol wallets + lock) */}
+          <button
+            onClick={() => setIsTransparencyOpen(true)}
+            title="Protocol transparency — public wallets & seed lock"
+            className="flex items-center justify-center w-9 h-9 rounded-lg bg-bg-darker border border-border-dark text-gray-400 hover:text-kaspa hover:border-kaspa/40 transition-all cursor-pointer"
+          >
+            <Shield className="w-4 h-4" />
+          </button>
+
           {/* Connect Wallet Trigger */}
           <button
             id="wallet-hub-trigger-btn"
             onClick={() => setIsHubOpen(true)}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${
-              isWalletConnected 
-                ? 'bg-kaspa-dark/20 border-kaspa text-kaspa hover:bg-kaspa-dark/30' 
-                : 'bg-kaspa text-bg-darker border-kaspa hover:bg-kaspa-light'
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-sans font-semibold transition-all cursor-pointer border ${
+              isWalletConnected
+                ? 'bg-kaspa/10 border-kaspa/40 text-kaspa hover:bg-kaspa/15'
+                : 'bg-kaspa text-bg-darker border-kaspa hover:bg-kaspa-light shadow-[0_2px_12px_rgba(20,184,166,0.35)]'
             }`}
           >
-            <Wallet className="w-3.5 h-3.5" />
-            <span>
-              {isWalletConnected 
-                ? `${connectedWalletType}: ${userL1Address.slice(0, 10)}...` 
-                : 'Connect Wallet Hub'
-              }
-            </span>
-            <ChevronDown className="w-3 h-3 ml-0.5" />
+            {isWalletConnected ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-kaspa animate-pulse" />
+                <span className="font-mono">{userL2Address.slice(0, 6)}…{userL2Address.slice(-4)}</span>
+              </>
+            ) : (
+              <>
+                <Wallet className="w-4 h-4" />
+                <span>Connect Wallet</span>
+              </>
+            )}
           </button>
         </div>
       </div>
 
-      {/* L1 Info Bar */}
-      <div className="bg-bg-darker border-t border-border-dark mt-2 -mb-2.5 py-1 px-4 text-[11px] text-gray-400 font-mono flex flex-wrap justify-between gap-2 overflow-hidden">
-        <div className="flex items-center gap-2 truncate">
-          <span className="text-kaspa font-semibold">Dev Wallet:</span>
-          <span className="truncate text-gray-300 select-all max-w-[200px] md:max-w-none">{DEV_WALLET}</span>
-          <button onClick={() => copyAddress(DEV_WALLET, 'dev')} className="text-[10px] text-kaspa hover:underline ml-1">
-            {copied === 'dev' ? 'Copied!' : 'Copy'}
-          </button>
+      {/* TRANSPARENCY MODAL — protocol wallets + seed lock, on demand (not cluttering the header) */}
+      {isTransparencyOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setIsTransparencyOpen(false)}
+        >
+          <div
+            className="bg-bg-dark border border-border-dark w-full max-w-md rounded-2xl shadow-2xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-bold text-base text-white flex items-center gap-2">
+                <Shield className="w-4.5 h-4.5 text-kaspa" /> Protocol Transparency
+              </h3>
+              <button onClick={() => setIsTransparencyOpen(false)} className="text-gray-500 hover:text-white text-sm font-mono">✕</button>
+            </div>
+
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Every protocol wallet is public and every rule lives in the open-source contract. The
+              developer seed is time-locked for 100 days and only the original principal is ever withdrawable.
+            </p>
+
+            {[
+              { label: 'Developer Wallet', addr: DEV_WALLET, key: 'dev', color: 'text-kaspa' },
+              { label: 'Liquidity Pool Wallet', addr: POOL_WALLET, key: 'pool', color: 'text-amber-400' },
+            ].map((w) => (
+              <div key={w.key} className="bg-bg-darker border border-border-dark rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className={`text-[11px] font-semibold ${w.color}`}>{w.label}</span>
+                  <button onClick={() => copyAddress(w.addr, w.key)} className="text-[10px] text-gray-400 hover:text-kaspa">
+                    {copied === w.key ? 'Copied ✓' : 'Copy'}
+                  </button>
+                </div>
+                <div className="text-[10px] text-gray-300 font-mono break-all select-all bg-bg-dark rounded-lg p-2">{w.addr}</div>
+              </div>
+            ))}
+
+            <div className="text-[11px] text-gray-400 border-t border-border-dark pt-3">
+              Full pool balance, locked seed, and the unlock countdown are in the{' '}
+              <span className="text-kaspa font-semibold">Protocol Audits</span> tab.
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 truncate">
-          <span className="text-amber-400 font-semibold">Pool Wallet:</span>
-          <span className="truncate text-gray-300 select-all max-w-[200px] md:max-w-none">{POOL_WALLET}</span>
-          <button onClick={() => copyAddress(POOL_WALLET, 'pool')} className="text-[10px] text-amber-400 hover:underline ml-1">
-            {copied === 'pool' ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-      </div>
+      )}
 
       {/* MULTICHAIN WALLET & BRIDGE HUB MODAL */}
       {isHubOpen && (
@@ -717,100 +757,58 @@ export default function Navbar({
                   <button onClick={() => setIsHubOpen(false)} className="text-gray-500 hover:text-white text-sm font-mono">✕</button>
                 </div>
 
-                {/* Wallet Options */}
-                <div className="space-y-3 mb-6">
-                  {/* Kasware Wallet */}
-                  <button
-                    onClick={connectKasware}
-                    className={`w-full p-3 rounded-xl border text-left transition-all flex justify-between items-center ${
-                      connectedWalletType === 'KASWARE'
-                        ? 'bg-kaspa-dark/15 border-kaspa text-white'
-                        : 'bg-bg-darker border-border-dark hover:border-gray-600 text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-[#1e2330] flex items-center justify-center font-bold text-xs text-kaspa border border-kaspa/20">KW</div>
-                      <div>
-                        <span className="text-xs font-semibold block">Kasware Wallet (L1 & L2)</span>
-                        <span className="text-[10px] text-gray-400 font-mono">Injected Web Standard</span>
-                      </div>
-                    </div>
-                    {connectedWalletType === 'KASWARE' ? (
-                      <span className="text-[10px] font-mono bg-kaspa-dark/40 border border-kaspa/30 px-2 py-0.5 rounded text-kaspa">Connected</span>
-                    ) : (
-                      <span className="text-[10px] text-gray-500 font-mono">Link</span>
-                    )}
-                  </button>
-
-                  {/* Kaspium Wallet */}
-                  <button
-                    onClick={() => simulateConnection('KASPIUM')}
-                    className={`w-full p-3 rounded-xl border text-left transition-all flex justify-between items-center ${
-                      connectedWalletType === 'KASPIUM'
-                        ? 'bg-kaspa-dark/15 border-kaspa text-white'
-                        : 'bg-bg-darker border-border-dark hover:border-gray-600 text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-[#2a1b3d] flex items-center justify-center font-bold text-xs text-purple-400 border border-purple-500/20">KP</div>
-                      <div>
-                        <span className="text-xs font-semibold block">Kaspium Mobile Wallet</span>
-                        <span className="text-[10px] text-gray-400 font-mono">Secure Pairing Protocol</span>
-                      </div>
-                    </div>
-                    {connectedWalletType === 'KASPIUM' ? (
-                      <span className="text-[10px] font-mono bg-kaspa-dark/40 border border-kaspa/30 px-2 py-0.5 rounded text-kaspa">Connected</span>
-                    ) : (
-                      <span className="text-[10px] text-gray-500 font-mono">Simulate</span>
-                    )}
-                  </button>
-
-                  {/* KDX Desktop Wallet */}
-                  <button
-                    onClick={() => simulateConnection('KDX')}
-                    className={`w-full p-3 rounded-xl border text-left transition-all flex justify-between items-center ${
-                      connectedWalletType === 'KDX'
-                        ? 'bg-kaspa-dark/15 border-kaspa text-white'
-                        : 'bg-bg-darker border-border-dark hover:border-gray-600 text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-[#152e1f] flex items-center justify-center font-bold text-xs text-emerald-400 border border-emerald-500/20">KD</div>
-                      <div>
-                        <span className="text-xs font-semibold block">KDX Node Console</span>
-                        <span className="text-[10px] text-gray-400 font-mono">Local Node Desktop RPC</span>
-                      </div>
-                    </div>
-                    {connectedWalletType === 'KDX' ? (
-                      <span className="text-[10px] font-mono bg-kaspa-dark/40 border border-kaspa/30 px-2 py-0.5 rounded text-kaspa">Connected</span>
-                    ) : (
-                      <span className="text-[10px] text-gray-500 font-mono">Simulate</span>
-                    )}
-                  </button>
-
-                  {/* MetaMask / EVM Wallet */}
+                {/* Wallet options — MetaMask connects to the Kaspa EVM L2 for real trading.
+                    Others are clearly "Soon" and never fake-connect. */}
+                <p className="text-xs text-gray-400 mb-4">Choose how you'd like to connect to the Kaspa L2.</p>
+                <div className="space-y-2.5 mb-5">
+                  {/* MetaMask — the real one */}
                   <button
                     id="connect-metamask-btn"
                     onClick={connectMetaMask}
-                    className={`w-full p-3 rounded-xl border text-left transition-all flex justify-between items-center ${
+                    className={`group w-full p-3.5 rounded-2xl border text-left transition-all flex items-center gap-3.5 ${
                       connectedWalletType === 'METAMASK'
-                        ? 'bg-kaspa-dark/15 border-kaspa text-white'
-                        : 'bg-bg-darker border-border-dark hover:border-gray-600 text-gray-300'
+                        ? 'bg-kaspa/10 border-kaspa'
+                        : 'bg-bg-darker border-border-dark hover:border-kaspa/50 hover:bg-bg-card'
                     }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded bg-[#e87a24]/10 flex items-center justify-center font-bold text-xs text-[#e87a24] border border-[#e87a24]/20">MM</div>
-                      <div>
-                        <span className="text-xs font-semibold block">MetaMask / EVM Wallet (L2 Bridge)</span>
-                        <span className="text-[10px] text-gray-400 font-mono">Web3 Injected RPC Standard</span>
-                      </div>
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#f6851b] to-[#e2761b] flex items-center justify-center shrink-0 shadow-md">
+                      <svg viewBox="0 0 24 24" className="w-6 h-6" fill="#fff">
+                        <path d="M20.7 3.3l-6.9 5.1 1.3-3zM3.3 3.3l6.8 5.2-1.2-3.1zM17.9 16l-1.9 2.9 4 1.1 1.1-3.9zM2.9 16.1L4 20l4-1.1L6.1 16z" opacity=".9" />
+                        <path d="M7.8 10.7L6.7 12.4l4 .2-.1-4.3zM16.2 10.7l-2.8-2.4-.1 4.4 4-.2zM8 18.9l2.4-1.2-2.1-1.6zM13.6 17.7l2.4 1.2-.3-2.8z" />
+                      </svg>
                     </div>
-                    {connectedWalletType === 'METAMASK' ? (
-                      <span className="text-[10px] font-mono bg-kaspa-dark/40 border border-kaspa/30 px-2 py-0.5 rounded text-kaspa">Connected</span>
-                    ) : (
-                      <span className="text-[10px] text-gray-500 font-mono">Link / Connect</span>
-                    )}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold text-white block">MetaMask</span>
+                      <span className="text-[11px] text-gray-400">Connect to the Kaspa EVM L2 · real trading</span>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
+                      connectedWalletType === 'METAMASK'
+                        ? 'bg-kaspa text-bg-darker'
+                        : 'bg-kaspa/10 text-kaspa border border-kaspa/30 group-hover:bg-kaspa/20'
+                    }`}>
+                      {connectedWalletType === 'METAMASK' ? 'Connected' : 'Connect'}
+                    </span>
                   </button>
+
+                  {/* Kasware — coming soon (Kaspa-native, EVM support later) */}
+                  <div className="w-full p-3.5 rounded-2xl border border-border-dark/60 bg-bg-darker/40 flex items-center gap-3.5 opacity-60 cursor-not-allowed select-none">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#14b8a6] to-[#0f766e] flex items-center justify-center shrink-0 font-display font-bold text-white text-sm">Ka</div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold text-gray-200 block">Kasware</span>
+                      <span className="text-[11px] text-gray-500">Kaspa-native wallet</span>
+                    </div>
+                    <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-bg-dark text-gray-500 border border-border-dark shrink-0">Soon</span>
+                  </div>
+
+                  {/* Kaspium — coming soon */}
+                  <div className="w-full p-3.5 rounded-2xl border border-border-dark/60 bg-bg-darker/40 flex items-center gap-3.5 opacity-60 cursor-not-allowed select-none">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#5b21b6] flex items-center justify-center shrink-0 font-display font-bold text-white text-sm">Kp</div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold text-gray-200 block">Kaspium</span>
+                      <span className="text-[11px] text-gray-500">Mobile wallet</span>
+                    </div>
+                    <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-bg-dark text-gray-500 border border-border-dark shrink-0">Soon</span>
+                  </div>
                 </div>
               </div>
 
