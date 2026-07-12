@@ -240,29 +240,36 @@ export default function Navbar({
   };
 
   const connectMetaMask = async () => {
-    if (typeof (window as any).ethereum !== 'undefined') {
-      try {
-        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-        if (accounts && accounts.length > 0) {
-          // Make sure the wallet is on the active L2 so trades actually land on-chain.
-          if (isSupportedNetwork(activeChain)) {
-            setActiveNetwork(activeChain);
-            await ensureNetwork();
-          }
-          const addr = accounts[0];
-          setUserL2Address(addr);
-          // Map to an elegant aligned virtual L1 address to keep UI consistent
-          const virtualL1 = `kaspa:qqzjw5evm${addr.substring(2, 32).toLowerCase()}`;
-          setUserL1Address(virtualL1);
-          setUserWallet(virtualL1);
-          setIsWalletConnected(true);
-          setConnectedWalletType('METAMASK');
-        }
-      } catch (err) {
-        console.error('MetaMask connection rejected', err);
+    const eth = (window as any).ethereum;
+    // No silent fake-connect: if there's no injected wallet, say so clearly.
+    if (typeof eth === 'undefined') {
+      triggerAlert?.('error', 'MetaMask not detected. Install the MetaMask extension, then open this page (localhost:3000) in that same browser.');
+      return;
+    }
+    try {
+      triggerAlert?.('info', 'Approve the connection request in the MetaMask popup...');
+      const accounts = await eth.request({ method: 'eth_requestAccounts' });
+      if (!accounts || accounts.length === 0) {
+        triggerAlert?.('error', 'No account returned. Unlock MetaMask and try again.');
+        return;
       }
-    } else {
-      simulateConnection('METAMASK');
+      // Make sure the wallet is on the active L2 so trades actually land on-chain.
+      if (isSupportedNetwork(activeChain)) {
+        setActiveNetwork(activeChain);
+        await ensureNetwork();
+      }
+      const addr = accounts[0];
+      setUserL2Address(addr);
+      const virtualL1 = `kaspa:qqzjw5evm${addr.substring(2, 32).toLowerCase()}`;
+      setUserL1Address(virtualL1);
+      setUserWallet(virtualL1);
+      setIsWalletConnected(true);
+      setConnectedWalletType('METAMASK');
+      setIsHubOpen(false);
+      triggerAlert?.('success', `Wallet connected: ${addr.slice(0, 6)}…${addr.slice(-4)}`);
+    } catch (err: any) {
+      console.error('MetaMask connection failed', err);
+      triggerAlert?.('error', err?.code === 4001 ? 'Connection rejected in MetaMask.' : `Connection failed: ${err?.message || 'unknown error'}`);
     }
   };
 
