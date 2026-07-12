@@ -501,15 +501,22 @@ export default function App() {
   }, [strategies, positions, tokens]);
 
   // TRADING OPEN ACTION
-  const handleOpenPosition = async (type: 'LONG' | 'SHORT', leverage: number, collateral: number) => {
+  const handleOpenPosition = async (
+    type: 'LONG' | 'SHORT',
+    leverage: number,
+    collateral: number,
+    source: 'user' | 'ai' = 'user',
+  ) => {
     if (collateral <= 0) {
       triggerAlert('error', 'Enter a valid collateral amount in KAS.');
       return;
     }
 
-    // REAL on-chain path: MetaMask on Kasplex L2 executes an actual openPosition transaction
-    // (margin + dev fee + keeper fee are sent as native KAS to the deployed contract).
-    if (connectedWalletType === 'METAMASK' && typeof (window as any).ethereum !== 'undefined') {
+    // SAFETY GUARD: only an explicit USER action may spend real funds on-chain. The
+    // autonomous AI agent always paper-trades (source === 'ai') and never signs a real
+    // transaction — a bot must never move the user's money without a deliberate click.
+    // REAL on-chain path: MetaMask on Kasplex L2 executes an actual openPosition transaction.
+    if (source === 'user' && connectedWalletType === 'METAMASK' && typeof (window as any).ethereum !== 'undefined') {
       try {
         triggerAlert('info', `🔒 Confirm the ${type} in MetaMask — margin + fee are sent on-chain...`);
         const { txHash, positionId } = await openPositionOnChain(
@@ -679,35 +686,49 @@ export default function App() {
     triggerAlert(pos.pnl >= 0 ? 'success' : 'info', statusText);
   };
 
-  // EMERGENCY CLOSE ALL POSITIONS TRIGGER (0.1S DELAY)
-  const handleEmergencyCloseAll = () => {
-    if (positions.length === 0) return;
+  // EMERGENCY CLOSE ALL POSITIONS — really settles on-chain positions via the contract,
+  // and clears simulated ones locally. Each on-chain close is a real wallet transaction.
+  const handleEmergencyCloseAll = async () => {
+    const snapshot = [...positions];
+    if (snapshot.length === 0) return;
 
-    positions.forEach((pos) => {
-      // Direct close call
-      const closeFee = pos.feePaid;
-      const logItem: TradeHistoryItem = {
-        id: `hist-${Date.now()}`,
-        symbol: pos.symbol,
-        type: pos.type,
-        action: 'CLOSE',
-        leverage: pos.leverage,
-        size: pos.size,
-        price: pos.currentPrice,
-        pnl: pos.pnl,
-        fee: closeFee,
-        timestamp: Date.now(),
-        txId: generateTxId(),
-        fromAddress: VAULT_ADDRESS,
-        toAddress: USER_WALLET,
-        blueScore: 82914100 + Math.floor(Math.random() * 500),
-      };
-      setTradeHistory((prev) => [logItem, ...prev]);
-    });
+    const onChain = snapshot.filter((p) => p.id.startsWith('onchain-'));
+    const simulated = snapshot.filter((p) => !p.id.startsWith('onchain-'));
 
-    // Clear positions
-    setPositions([]);
-    triggerAlert('success', `⚡ EMERGENCY SYSTEM TRIGGERED: Closed all ${positions.length} active high-leverage position(s) with 0.1s block propagation priority.`);
+    // 1) Real on-chain positions: fire an actual closePosition tx for each.
+    if (onChain.length > 0) {
+      triggerAlert('info', `🔒 Emergency close: confirm ${onChain.length} on-chain close transaction(s) in your wallet...`);
+      for (const pos of onChain) {
+        const chainId = parseInt(pos.id.replace('onchain-', ''), 10);
+        if (Number.isNaN(chainId)) continue;
+        try {
+          const { txHash } = await closePositionOnChain(chainId);
+          setPositions((prev) => prev.filter((p) => p.id !== pos.id));
+          setTradeHistory((prev) => [{
+            id: `hist-${Date.now()}-${chainId}`, symbol: pos.symbol, type: pos.type, action: 'CLOSE',
+            leverage: pos.leverage, size: pos.size, price: pos.currentPrice, pnl: pos.pnl,
+            fee: pos.feePaid, timestamp: Date.now(), txId: txHash, fromAddress: VAULT_ADDRESS, toAddress: userL2Address,
+          }, ...prev]);
+        } catch (err: any) {
+          console.error('emergency close failed for', chainId, err);
+          triggerAlert('error', `Position #${chainId} emergency close ${err?.shortMessage || 'rejected'}.`);
+        }
+      }
+    }
+
+    // 2) Simulated positions: clear locally (no chain to settle against).
+    if (simulated.length > 0) {
+      simulated.forEach((pos) => {
+        setTradeHistory((prev) => [{
+          id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, symbol: pos.symbol, type: pos.type,
+          action: 'CLOSE', leverage: pos.leverage, size: pos.size, price: pos.currentPrice, pnl: pos.pnl,
+          fee: pos.feePaid, timestamp: Date.now(), txId: generateTxId(), fromAddress: VAULT_ADDRESS, toAddress: USER_WALLET,
+        }, ...prev]);
+      });
+      setPositions((prev) => prev.filter((p) => p.id.startsWith('onchain-')));
+    }
+
+    triggerAlert('success', `⚡ EMERGENCY CLOSE processed: ${onChain.length} on-chain + ${simulated.length} simulated position(s).`);
   };
 
   // POOL FAST FORWARD TIMERS (FOR LOCK TESTS)
@@ -844,7 +865,7 @@ export default function App() {
         if (aiTradeAgentSettings.riskProfile === 'CONSERVATIVE') collateral = 50;
         if (aiTradeAgentSettings.riskProfile === 'DEGEN') collateral = 500;
 
-        handleOpenPosition(data.action as 'LONG' | 'SHORT', data.leverage || 10, collateral);
+        handleOpenPosition(data.action as 'LONG' | 'SHORT', data.leverage || 10, collateral, 'ai');
         setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 🚀 AI Executed: ${data.action} trade on ${activeToken.symbol}.`, ...prev]);
       } else {
         setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 💤 AI Decision: HOLD. Observing market conditions.`, ...prev]);
@@ -859,7 +880,7 @@ export default function App() {
       if (randomAction !== 'HOLD') {
         const fallbackLev = Math.floor(Math.random() * 45) + 5;
         const fallbackCol = Math.random() > 0.5 ? 100 : 50;
-        handleOpenPosition(randomAction, fallbackLev, fallbackCol);
+        handleOpenPosition(randomAction, fallbackLev, fallbackCol, 'ai');
         setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 🚀 Heuristic fallback executed ${randomAction} position on ${activeToken.symbol}.`, ...prev]);
       } else {
         setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 💤 Heuristic fallback: HOLD. No high probability trade setups detected.`, ...prev]);

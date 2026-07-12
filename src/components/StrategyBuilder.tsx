@@ -168,12 +168,17 @@ export default function StrategyBuilder({
                   <div className="flex items-center gap-2.5">
                     <Bot className="text-kaspa w-5.5 h-5.5" />
                     <h3 className="font-display font-black text-lg text-white">Gemini Autonomous Perps Bot</h3>
+                    <span className="text-[9px] font-mono font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                      PAPER TRADING
+                    </span>
                   </div>
                   <span className={`w-2.5 h-2.5 rounded-full ${isAiTradeAgentActive ? 'bg-kaspa animate-ping' : 'bg-gray-600'}`} />
                 </div>
 
                 <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                  The AI Autonomous trading engine analyses live L1 orderbooks, historical indicators and L2 liquidity pools to trigger leverage entries securely.
+                  The AI agent analyses live prices and simulates leverage entries. For your safety it is
+                  <span className="text-amber-400 font-semibold"> paper-trading only</span> — it never signs a real
+                  transaction or spends wallet funds. Live autonomous trading will use a dedicated, capped bot wallet.
                 </p>
 
                 {/* Switcher toggle */}

@@ -364,15 +364,15 @@ export default function TradingView({
             </span>
           </div>
           <div className="text-right">
-            <span className="text-gray-400 block text-[10px]">24h High</span>
+            <span className="text-gray-400 block text-[10px]">24h High <span className="text-gray-600">·sim</span></span>
             <span className="text-xs text-white">${(activeToken.price * 1.05).toFixed(6)}</span>
           </div>
           <div className="text-right">
-            <span className="text-gray-400 block text-[10px]">24h Low</span>
+            <span className="text-gray-400 block text-[10px]">24h Low <span className="text-gray-600">·sim</span></span>
             <span className="text-xs text-white">${(activeToken.price * 0.95).toFixed(6)}</span>
           </div>
           <div className="text-right hidden sm:block">
-            <span className="text-gray-400 block text-[10px]">Funding Rate</span>
+            <span className="text-gray-400 block text-[10px]">Funding Rate <span className="text-gray-600">·sim</span></span>
             <span className="text-xs text-kaspa font-bold">0.0001% / hr</span>
           </div>
         </div>
@@ -387,6 +387,7 @@ export default function TradingView({
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-kaspa animate-pulse" />
               <h3 className="font-display font-bold text-sm text-white">{activeToken.symbol} Live Price Feed</h3>
+              <span className="text-[9px] text-gray-500 font-mono">(live price · simulated candles)</span>
             </div>
             <div className="flex items-center gap-1.5 bg-bg-darker px-2.5 py-1 rounded text-[10px] font-mono text-gray-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
