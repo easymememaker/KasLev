@@ -26,8 +26,12 @@ jobs:
           cache: npm
       # Root deps provide ethers + dotenv; keeper resolves them from here.
       - run: npm ci --omit=dev
+      # continue-on-error: a testnet having an off day should show a red step,
+      # not fail the whole scheduled run every 10 minutes.
       - name: Push price — Kasplex zkEVM testnet
+        continue-on-error: true
         run: KEEPER_ONCE=true KEEPER_NETWORK=kasplexTestnet node contracts/scripts/keeper.js
       - name: Push price — Igra Galleon testnet
         if: always() # one network failing must not starve the other
+        continue-on-error: true
         run: KEEPER_ONCE=true KEEPER_NETWORK=igraGalleon node contracts/scripts/keeper.js
