@@ -1,3 +1,13 @@
+---
+title: KasLev
+emoji: 📈
+colorFrom: green
+colorTo: gray
+sdk: docker
+app_port: 3000
+pinned: false
+---
+
 # KasLev — Kaspa High-Leverage L2 Protocol
 
 Open-source perpetuals trading on Kaspa EVM Layer-2 testnets. Real contracts, a
