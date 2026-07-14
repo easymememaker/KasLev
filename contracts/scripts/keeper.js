@@ -38,20 +38,37 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 /** Chains that enforce a minimum gas price (wei) — mirrors src/web3/config.ts. */
 const MIN_GAS_PRICE_WEI = { 38836: 2000000000000n /* Igra Galleon: 2000 gwei */ };
 
+// Every source gets a hard timeout: exchanges silently blackhole datacenter IPs
+// (e.g. GitHub Actions runners) and an untimed fetch then hangs the whole cycle.
+const fetchJson = async (url, ms = 10_000) => {
+  const r = await fetch(url, { signal: AbortSignal.timeout(ms) });
+  return r.json();
+};
+
 async function livePrice() {
-  // Prefer the app's own proxy; fall back to Gate.io directly.
+  // Prefer the app's own proxy; fall back to public price APIs.
   try {
-    const r = await fetch('http://localhost:3000/api/kaspa-price');
-    const j = await r.json();
+    const j = await fetchJson('http://localhost:3000/api/kaspa-price', 3_000);
     if (j && j.price > 0) return { usd: j.price, src: j.source };
   } catch {}
   try {
-    const r = await fetch('https://api.gateio.ws/api/v4/spot/tickers?currency_pair=KAS_USDT');
-    const j = await r.json();
+    const j = await fetchJson('https://api.gateio.ws/api/v4/spot/tickers?currency_pair=KAS_USDT');
     if (Array.isArray(j) && j[0]) return { usd: parseFloat(j[0].last), src: 'Gate.io' };
+  } catch {}
+  try {
+    const j = await fetchJson('https://api.mexc.com/api/v3/ticker/24hr?symbol=KASUSDT');
+    if (j && parseFloat(j.lastPrice) > 0) return { usd: parseFloat(j.lastPrice), src: 'MEXC' };
+  } catch {}
+  try {
+    const j = await fetchJson('https://api.coingecko.com/api/v3/simple/price?ids=kaspa&vs_currencies=usd');
+    if (j && j.kaspa && j.kaspa.usd > 0) return { usd: parseFloat(j.kaspa.usd), src: 'CoinGecko' };
   } catch {}
   return null;
 }
+
+/** Reject if a promise takes longer than `ms` — RPCs can hang, cron jobs must not. */
+const deadline = (promise, ms, label) =>
+  Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms))]);
 
 async function cycle(provider, signer, oracle, perps, txOpts) {
   // --- 1. Oracle upkeep ---
@@ -125,12 +142,16 @@ async function main() {
   const once = (process.env.KEEPER_ONCE || '').toLowerCase() === 'true';
   do {
     try {
-      await cycle(provider, signer, oracle, perps, txOpts);
+      // A cycle is a couple of RPC calls + at most a few txs — 120s is generous.
+      // Without this cap a blackholed RPC/price API hangs cron runners forever.
+      await deadline(cycle(provider, signer, oracle, perps, txOpts), 120_000, 'keeper cycle');
     } catch (e) {
       log('cycle error:', e.shortMessage || e.message);
+      if (once) process.exit(1); // cron mode: fail loudly, never hang
     }
     if (!once) await new Promise((r) => setTimeout(r, INTERVAL));
   } while (!once);
+  process.exit(0); // don't let a lingering provider socket keep the process alive
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
