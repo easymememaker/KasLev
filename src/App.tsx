@@ -817,18 +817,20 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] ⚠️ Server connection failed. Activating local deterministic heuristic model...`, ...prev]);
-      
-      // Heuristic fallback logic
-      const actions: ('LONG' | 'SHORT' | 'HOLD')[] = ['LONG', 'SHORT', 'HOLD'];
-      const randomAction = actions[Math.floor(Math.random() * actions.length)];
-      if (randomAction !== 'HOLD') {
-        const fallbackLev = Math.floor(Math.random() * 45) + 5;
-        const fallbackCol = Math.random() > 0.5 ? 100 : 50;
-        handleOpenPosition(randomAction, fallbackLev, fallbackCol, 'ai');
-        setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 🚀 Heuristic fallback executed ${randomAction} position on ${activeToken.symbol}.`, ...prev]);
+      setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] ⚠️ Server unreachable — using the local momentum heuristic (static-host mode).`, ...prev]);
+
+      // Same honest momentum heuristic the server uses when no cloud AI key is set:
+      // direction from the 24h move, leverage shrinking as volatility grows.
+      const momentum = (activeToken.change24h || 0) / 100;
+      const strength = Math.min(1, Math.abs(momentum) * 12);
+      const action: 'LONG' | 'SHORT' | 'HOLD' = Math.abs(momentum) < 0.004 ? 'HOLD' : momentum > 0 ? 'LONG' : 'SHORT';
+      if (action !== 'HOLD') {
+        const lev = Math.max(2, Math.min(50, Math.round(10 * (1 - strength) + 5)));
+        const col = aiTradeAgentSettings.riskProfile === 'CONSERVATIVE' ? 50 : aiTradeAgentSettings.riskProfile === 'DEGEN' ? 500 : 100;
+        handleOpenPosition(action, lev, col, 'ai');
+        setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 🚀 Local heuristic executed ${action} @ ${lev}x on ${activeToken.symbol} (24h ${activeToken.change24h.toFixed(2)}%).`, ...prev]);
       } else {
-        setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 💤 Heuristic fallback: HOLD. No high probability trade setups detected.`, ...prev]);
+        setAiAgentLogs((prev) => [`[${new Date().toLocaleTimeString()}] 💤 Local heuristic: HOLD — 24h momentum too weak for an entry.`, ...prev]);
       }
     } finally {
       setIsAiLoading(false);

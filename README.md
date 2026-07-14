@@ -50,9 +50,21 @@ The full address matrix with explorer links is also in the app under **Protocol 
 ### Testnet-only parameters
 
 For a meaningful public trial on small pools, `maxPayoutPoolBps` is set to the
-contract's hard maximum (20% of free liquidity per payout). Mainnet will ship with
-conservative caps. Everything else (fee tiers, 5% liquidation share, 100-day seed
-lock) already runs at intended values.
+contract's hard maximum (20% of free liquidity per payout), and the price
+freshness window (`maxAge` / `maxPriceAge`) is widened to 30 minutes so the free
+GitHub-Actions keeper cadence keeps trading live. Mainnet ships with conservative
+caps and the strict 300s window. Everything else (fee tiers, 5% liquidation
+share, 100-day seed lock) already runs at intended values.
+
+### Free public hosting (how the demo runs)
+
+- **Site**: GitHub Pages — static SPA built by `.github/workflows/pages.yml`.
+  On the static host the app talks straight to the chain RPCs and public price
+  APIs; the AI tab uses the local momentum heuristic.
+- **Keeper**: `.github/workflows/keeper.yml` runs every ~10 minutes and pushes
+  the live KAS price to both testnet oracles (needs the `KEEPER_PRIVATE_KEY`
+  repository secret). The full-stack server (`npm run dev` / Docker) remains the
+  richer deployment for hosts that allow long-lived processes.
 
 ## Run it yourself
 
