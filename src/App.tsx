@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Navbar from './components/Navbar';
 import TradingView from './components/TradingView';
@@ -741,73 +741,8 @@ export default function App() {
     triggerAlert('success', `⚡ EMERGENCY CLOSE processed: ${onChain.length} on-chain + ${simulated.length} simulated position(s).`);
   };
 
-  // POOL FAST FORWARD TIMERS (FOR LOCK TESTS)
-  const handleFastForwardPool = (days: number) => {
-    setPool((prev) => {
-      const remaining = Math.max(0, prev.lockExpiryDays - days);
-      const unlocked = remaining <= 0;
-      return {
-        ...prev,
-        lockExpiryDays: remaining,
-        isUnlocked: unlocked,
-      };
-    });
-    triggerAlert('success', `⏳ Advanced countdown timeline forward by ${days} days.`);
-  };
-
-  // POOL DEV WITHDRAWAL 30k KAS
-  const handleWithdraw30k = async () => {
-    if (!pool.isUnlocked) {
-      triggerAlert('error', 'Withdrawal locked. 100-day freeze period is still active.');
-      return;
-    }
-    if (pool.developerContribution <= 0) {
-      triggerAlert('error', 'Initial contribution has already been withdrawn.');
-      return;
-    }
-
-    // Secure live wallet signature request if connected!
-    if (connectedWalletType === 'METAMASK' && typeof (window as any).ethereum !== 'undefined') {
-      try {
-        triggerAlert('info', '🔒 Sign Dev Lock-up Release Request in MetaMask to authorize...');
-        const accounts = await (window as any).ethereum.request({ method: 'eth_accounts' });
-        const from = accounts[0] || userL2Address;
-        
-        const message = `Authorize KasLev Dev Locked-up Liquidity Release:\nAddress: ${DEV_WALLET}\nAmount: 30000 KAS\nTimestamp: ${Date.now()}`;
-        const hexMsg = '0x' + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, '0')).join('');
-        
-        const sig = await (window as any).ethereum.request({
-          method: 'personal_sign',
-          params: [hexMsg, from],
-        });
-        console.log('Release request signed in MetaMask:', sig);
-        triggerAlert('success', '✅ Release request signature verified successfully!');
-      } catch (err: any) {
-        console.error('MetaMask pool release signing failed:', err);
-        triggerAlert('error', `Release cancelled: ${err?.message || 'Signature request rejected.'}`);
-        return;
-      }
-    } else if (connectedWalletType === 'KASWARE' && typeof (window as any).kasware !== 'undefined') {
-      try {
-        triggerAlert('info', '🔒 Sign Dev Lock-up Release Request in Kasware to authorize...');
-        const sig = await (window as any).kasware.signMessage(`Authorize KasLev Dev Locked-up Liquidity Release:\nAddress: ${DEV_WALLET}\nAmount: 30000 KAS`);
-        console.log('Release request signed in Kasware:', sig);
-        triggerAlert('success', '✅ Release request signature verified successfully!');
-      } catch (err: any) {
-        console.error('Kasware pool release signing failed:', err);
-        triggerAlert('error', `Release cancelled: ${err?.message || 'Signature request rejected.'}`);
-        return;
-      }
-    }
-
-    setPool((prev) => ({
-      ...prev,
-      totalKAS: prev.totalKAS - 30000,
-      developerContribution: 0,
-    }));
-
-    triggerAlert('success', '💸 SUCCESSFUL DEV WITHDRAWAL: Exactly 30,000 KAS withdrawn to developer wallet address successfully. Remaining pool balances stay locked forever in the decentralized protocol.');
-  };
+  // The developer seed lock is enforced by the vault contract itself — the audits tab
+  // reads lockExpiry straight from the chain, so no simulated fast-forward/withdraw here.
 
   // L1 ⇄ L2 BRIDGE TRANSFERS
   const handleBridgeTransfer = (direction: 'L1_TO_L2' | 'L2_TO_L1', amount: number, tokenSymbol: string) => {
@@ -865,7 +800,7 @@ export default function App() {
       
       const logs = [
         `[${new Date().toLocaleTimeString()}] 🔍 Forecast: ${data.forecast}`,
-        `[${new Date().toLocaleTimeString()}] ⚡ Decision: ${data.action} @ ${data.leverage}x (Confidence: ${data.confidence}%)`,
+        `[${new Date().toLocaleTimeString()}] ⚡ Decision: ${data.action} @ ${data.leverage}x (Confidence: ${data.confidence}% · engine: ${data.engine || 'gemini'})`,
         `[${new Date().toLocaleTimeString()}] 💡 Reasoning: ${data.reasoning}`
       ];
       setAiAgentLogs((prev) => [...logs, ...prev]);
@@ -901,22 +836,30 @@ export default function App() {
     }
   };
 
-  // AI countdown timer effect
+  // AI countdown timer. The tick side effect must live in the interval callback, NOT
+  // inside the setState updater — React double-invokes updaters in dev to surface
+  // impurity, which fired every analysis twice. The ref keeps the latest tick closure
+  // (fresh prices) without restarting the interval on every render.
+  const aiTickRef = useRef<() => void>(() => {});
+  aiTickRef.current = triggerAiAgentTick;
+  const aiCountdownRef = useRef(aiCountdown);
   useEffect(() => {
     if (!isAiTradeAgentActive) return;
-    
+
+    aiCountdownRef.current = aiTradeAgentSettings.triggerFrequencySec;
+    setAiCountdown(aiCountdownRef.current);
+
     const interval = setInterval(() => {
-      setAiCountdown((prev) => {
-        if (prev <= 1) {
-          triggerAiAgentTick();
-          return aiTradeAgentSettings.triggerFrequencySec;
-        }
-        return prev - 1;
-      });
+      aiCountdownRef.current -= 1;
+      if (aiCountdownRef.current <= 0) {
+        aiCountdownRef.current = aiTradeAgentSettings.triggerFrequencySec;
+        aiTickRef.current();
+      }
+      setAiCountdown(aiCountdownRef.current);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isAiTradeAgentActive, activeToken, aiTradeAgentSettings.triggerFrequencySec]);
+  }, [isAiTradeAgentActive, aiTradeAgentSettings.triggerFrequencySec]);
 
   // DEV PORTAL TOKEN MANAGE
   const handleAddToken = (tok: Token) => {
@@ -1065,8 +1008,6 @@ export default function App() {
             >
               <ProtocolTransparency
                 pool={pool}
-                onFastForward={handleFastForwardPool}
-                onWithdraw30k={handleWithdraw30k}
                 devWalletAddress="kaspa:qzlcgpevs5ma2mhhxgc5fep3mw3z0k3huh92xh3gruuglxq70s85uy05cc9z9"
               />
             </motion.div>

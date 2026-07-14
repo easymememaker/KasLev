@@ -123,8 +123,8 @@ export default function StrategyBuilder({
     <div className="max-w-7xl mx-auto p-4 space-y-6" id="strategy-tab-content">
       
       {/* INNER TAB SELECTOR HEADER */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-bg-dark border border-border-dark p-2 rounded-xl gap-2">
-        <div className="flex items-center gap-1 bg-bg-darker p-1 rounded-lg border border-border-dark w-full sm:w-auto">
+      <div className="flex flex-wrap justify-between items-center bg-bg-dark border border-border-dark p-2 rounded-xl gap-2">
+        <div className="flex items-center gap-1 bg-bg-darker p-1 rounded-lg border border-border-dark max-w-full overflow-x-auto scrollbar-none">
           {[
             { id: 'AI_AGENT', label: 'Autonomous AI Agent', icon: Bot },
             { id: 'CLASSIC', label: 'Classic Grid & Triggers', icon: Sliders },
@@ -149,7 +149,7 @@ export default function StrategyBuilder({
           })}
         </div>
 
-        <span className="text-[11px] font-mono text-gray-400 px-3 py-1 bg-bg-darker rounded border border-border-dark flex items-center gap-1.5 w-full sm:w-auto justify-center">
+        <span className="text-[11px] font-mono text-gray-400 px-3 py-1.5 bg-bg-darker rounded-lg border border-border-dark flex items-center gap-1.5 whitespace-nowrap shrink-0">
           <Activity className="w-3 h-3 text-kaspa animate-pulse" />
           <span>Oracle Sync: <span className="text-kaspa font-bold">L1/L2 Active</span></span>
         </span>
