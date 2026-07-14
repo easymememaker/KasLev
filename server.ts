@@ -100,7 +100,10 @@ const KEEPER_PERPS_ABI = [
 ];
 
 const KAS_ASSET_ID = ethers.keccak256(ethers.toUtf8Bytes('KAS'));
-const KEEPER_INTERVAL_MS = Number(process.env.KEEPER_INTERVAL_MS || 120_000);
+// 150s = half the oracle's 300s maxAge: one failed push still leaves a retry before
+// the price goes stale, while limiting gas burn on chains with enforced minimum gas
+// prices (Igra: 2000 gwei per push).
+const KEEPER_INTERVAL_MS = Number(process.env.KEEPER_INTERVAL_MS || 150_000);
 
 interface KeeperNetworkStatus {
   network: string;
@@ -251,11 +254,39 @@ function localQuantForecast(symbol: string, price: number, change24h: number) {
 
 // ---------------------------------------------------------------------------
 
+// Minimal in-memory rate limiter for the public API surface: per-IP sliding window.
+// Enough to stop accidental hammering / trivial abuse on a public testnet host
+// without pulling in a dependency; a reverse proxy can layer stricter limits.
+function rateLimiter(maxPerMinute: number) {
+  const hits = new Map<string, number[]>();
+  setInterval(() => {
+    const cutoff = Date.now() - 60_000;
+    for (const [ip, times] of hits) {
+      const fresh = times.filter((t) => t > cutoff);
+      if (fresh.length === 0) hits.delete(ip);
+      else hits.set(ip, fresh);
+    }
+  }, 30_000).unref();
+
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const times = (hits.get(ip) || []).filter((t) => t > now - 60_000);
+    if (times.length >= maxPerMinute) {
+      return res.status(429).json({ error: 'Too many requests — slow down.' });
+    }
+    times.push(now);
+    hits.set(ip, times);
+    next();
+  };
+}
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT || 3000);
 
-  app.use(express.json());
+  app.use(express.json({ limit: '32kb' }));
+  app.use('/api/', rateLimiter(120));
 
   // API route for live Kaspa (KAS) price proxy to prevent CORS issues
   app.get('/api/kaspa-price', async (_req, res) => {
@@ -273,8 +304,9 @@ async function startServer() {
     });
   });
 
-  // API route for Gemini AI Forecast & Trade Recommendations
-  app.post('/api/ai-forecast', async (req, res) => {
+  // API route for Gemini AI Forecast & Trade Recommendations.
+  // Tighter limit: this one can call a billed cloud model.
+  app.post('/api/ai-forecast', rateLimiter(12), async (req, res) => {
     const { symbol, price, change24h, history, l2Active } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
