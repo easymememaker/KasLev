@@ -296,6 +296,17 @@ async function startServer() {
     return res.json({ price: 0.1542, change24h: 2.45, source: 'Kaspa Proxy Fallback (Simulated)' });
   });
 
+  // Liveness probe for hosting platforms + uptime pingers. Cheap by design (no
+  // RPC calls) — also reports whether each network's oracle was fresh last cycle.
+  app.get('/healthz', (_req, res) => {
+    const nets = Object.values(keeperStatus);
+    res.json({
+      ok: true,
+      uptimeSec: Math.floor(process.uptime()),
+      keeper: nets.length === 0 ? 'off' : nets.every((n) => n.oracleFresh) ? 'fresh' : 'degraded',
+    });
+  });
+
   // Keeper / testnet liveness for the frontend health widgets.
   app.get('/api/keeper/status', (_req, res) => {
     res.json({

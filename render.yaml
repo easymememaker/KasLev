@@ -1,0 +1,22 @@
+# Render Blueprint — deploys KasLev as one free web service (app + API + keeper).
+# Connect the GitHub repo on https://render.com, pick "Blueprint", done.
+services:
+  - type: web
+    name: kaslev
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/server.cjs
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Reporter key the keeper signs oracle pushes with (testnet-only wallet!).
+      # Set the value in the Render dashboard — never in this file.
+      - key: KEEPER_PRIVATE_KEY
+        sync: false
+      # Optional: real cloud AI for the strategies tab; local heuristic otherwise.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: KEEPER_INTERVAL_MS
+        value: "150000"

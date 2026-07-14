@@ -1,0 +1,11 @@
+node_modules
+dist
+contracts/node_modules
+contracts/artifacts
+contracts/cache
+.env
+.env.*
+!.env.example
+contracts/.env
+kaslev.zip
+.git
