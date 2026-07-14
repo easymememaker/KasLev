@@ -174,14 +174,20 @@ async function runKeeperLoop(netKey: NetworkKey, key: string) {
   const perps = new ethers.Contract(net.contracts.KasLevPerps, KEEPER_PERPS_ABI, signer);
   const txOpts = net.minGasPriceWei ? { gasPrice: BigInt(net.minGasPriceWei) } : {};
 
-  status.reporter = await oracle.isReporter(signer.address).catch(() => null);
-  console.log(`keeper[${netKey}]: online — signer ${signer.address.slice(0, 10)}… reporter=${status.reporter}`);
+  console.log(`keeper[${netKey}]: online — signer ${signer.address.slice(0, 10)}…`);
 
   let running = false;
   const cycle = async () => {
     if (running) return; // never overlap slow cycles
     running = true;
     try {
+      // Reporter check is retried until it succeeds — a transient RPC failure at
+      // startup must not silently disable pushes forever.
+      if (status.reporter !== true) {
+        status.reporter = await oracle.isReporter(signer.address);
+        console.log(`keeper[${netKey}]: reporter=${status.reporter}`);
+      }
+
       // 1. Oracle upkeep
       const live = await getLivePrice();
       if (live && status.reporter) {
