@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Token } from '../types';
 import { ensureNetwork, setActiveNetwork, isSupportedNetwork } from '../web3/kaslev';
+import { MetaMaskLogo, KaswareLogo, KaspiumLogo } from './WalletLogos';
 
 interface NavbarProps {
   currentTab: string;
@@ -72,6 +73,8 @@ export default function Navbar({
   const [copied, setCopied] = useState<string | null>(null);
   const [isHubOpen, setIsHubOpen] = useState(false);
   const [isTransparencyOpen, setIsTransparencyOpen] = useState(false);
+  // Which wallet is mid-handshake (drives the per-card spinner + disables double clicks).
+  const [connecting, setConnecting] = useState<'METAMASK' | 'KASWARE' | null>(null);
 
   // Bridging Interactive States
   const [bridgeDirection, setBridgeDirection] = useState<'L1_TO_L2' | 'L2_TO_L1'>('L1_TO_L2');
@@ -221,35 +224,49 @@ export default function Navbar({
     document.body.removeChild(textArea);
   };
 
-  // Wallet Connection Actions
+  // Wallet Connection Actions.
+  // Injection detection: which extensions are actually installed in this browser.
+  const hasMetaMask = typeof (window as any).ethereum !== 'undefined';
+  const hasKasware = typeof (window as any).kasware !== 'undefined';
+
   const connectKasware = async () => {
-    if (typeof (window as any).kasware !== 'undefined') {
-      try {
-        const accounts = await (window as any).kasware.requestAccounts();
-        if (accounts && accounts.length > 0) {
-          setUserL1Address(accounts[0]);
-          setUserWallet(accounts[0]);
-          setIsWalletConnected(true);
-          setConnectedWalletType('KASWARE');
-        }
-      } catch (err) {
-        console.error('Kasware connection rejected', err);
+    // No silent fake-connect: without the extension this button is an install link instead.
+    if (!hasKasware) {
+      triggerAlert?.('error', 'Kasware not detected. Install the Kasware extension, then reload this page.');
+      return;
+    }
+    setConnecting('KASWARE');
+    try {
+      triggerAlert?.('info', 'Approve the connection request in Kasware...');
+      const accounts = await (window as any).kasware.requestAccounts();
+      if (accounts && accounts.length > 0) {
+        setUserL1Address(accounts[0]);
+        setUserWallet(accounts[0]);
+        setIsWalletConnected(true);
+        setConnectedWalletType('KASWARE');
+        setIsHubOpen(false);
+        triggerAlert?.('success', `Kasware connected: ${accounts[0].slice(0, 12)}…`);
+      } else {
+        triggerAlert?.('error', 'No account returned. Unlock Kasware and try again.');
       }
-    } else {
-      simulateConnection('KASWARE');
+    } catch (err: any) {
+      console.error('Kasware connection rejected', err);
+      triggerAlert?.('error', err?.code === 4001 ? 'Connection rejected in Kasware.' : `Connection failed: ${err?.message || 'unknown error'}`);
+    } finally {
+      setConnecting(null);
     }
   };
 
   const connectMetaMask = async () => {
-    const eth = (window as any).ethereum;
     // No silent fake-connect: if there's no injected wallet, say so clearly.
-    if (typeof eth === 'undefined') {
+    if (!hasMetaMask) {
       triggerAlert?.('error', 'MetaMask not detected. Install the MetaMask extension, then open this page (localhost:3000) in that same browser.');
       return;
     }
+    setConnecting('METAMASK');
     try {
       triggerAlert?.('info', 'Approve the connection request in the MetaMask popup...');
-      const accounts = await eth.request({ method: 'eth_requestAccounts' });
+      const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
       if (!accounts || accounts.length === 0) {
         triggerAlert?.('error', 'No account returned. Unlock MetaMask and try again.');
         return;
@@ -271,24 +288,9 @@ export default function Navbar({
     } catch (err: any) {
       console.error('MetaMask connection failed', err);
       triggerAlert?.('error', err?.code === 4001 ? 'Connection rejected in MetaMask.' : `Connection failed: ${err?.message || 'unknown error'}`);
+    } finally {
+      setConnecting(null);
     }
-  };
-
-  const simulateConnection = (type: 'KASPIUM' | 'KDX' | 'KASWARE' | 'METAMASK') => {
-    const randomHex = Array.from({ length: 48 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    if (type === 'METAMASK') {
-      const mockL2 = `0x${randomHex.substring(0, 40)}`;
-      const mockL1 = `kaspa:qqzjw5evm${randomHex.substring(0, 30)}`;
-      setUserL2Address(mockL2);
-      setUserL1Address(mockL1);
-      setUserWallet(mockL1);
-    } else {
-      const mockAddr = `kaspa:qqzjw5${randomHex.substring(0, 30)}`;
-      setUserL1Address(mockAddr);
-      setUserWallet(mockAddr);
-    }
-    setIsWalletConnected(true);
-    setConnectedWalletType(type);
   };
 
   const disconnectWallet = () => {
@@ -761,51 +763,90 @@ export default function Navbar({
                     Others are clearly "Soon" and never fake-connect. */}
                 <p className="text-xs text-gray-400 mb-4">Choose how you'd like to connect to the Kaspa L2.</p>
                 <div className="space-y-2.5 mb-5">
-                  {/* MetaMask — the real one */}
+                  {/* MetaMask — real on-chain trading on the Kaspa EVM L2s */}
                   <button
                     id="connect-metamask-btn"
                     onClick={connectMetaMask}
+                    disabled={connecting !== null}
                     className={`group w-full p-3.5 rounded-2xl border text-left transition-all flex items-center gap-3.5 ${
                       connectedWalletType === 'METAMASK'
                         ? 'bg-kaspa/10 border-kaspa'
                         : 'bg-bg-darker border-border-dark hover:border-kaspa/50 hover:bg-bg-card'
                     }`}
                   >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#f6851b] to-[#e2761b] flex items-center justify-center shrink-0 shadow-md">
-                      <svg viewBox="0 0 24 24" className="w-6 h-6" fill="#fff">
-                        <path d="M20.7 3.3l-6.9 5.1 1.3-3zM3.3 3.3l6.8 5.2-1.2-3.1zM17.9 16l-1.9 2.9 4 1.1 1.1-3.9zM2.9 16.1L4 20l4-1.1L6.1 16z" opacity=".9" />
-                        <path d="M7.8 10.7L6.7 12.4l4 .2-.1-4.3zM16.2 10.7l-2.8-2.4-.1 4.4 4-.2zM8 18.9l2.4-1.2-2.1-1.6zM13.6 17.7l2.4 1.2-.3-2.8z" />
-                      </svg>
+                    <div className="w-11 h-11 rounded-xl bg-white/95 flex items-center justify-center shrink-0 shadow-md p-1.5">
+                      <MetaMaskLogo className="w-full h-full" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-semibold text-white block">MetaMask</span>
-                      <span className="text-[11px] text-gray-400">Connect to the Kaspa EVM L2 · real trading</span>
+                      <span className="text-[11px] text-gray-400">
+                        {hasMetaMask ? 'Kaspa EVM L2 · real on-chain trading' : 'Extension not detected in this browser'}
+                      </span>
                     </div>
-                    <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
-                      connectedWalletType === 'METAMASK'
-                        ? 'bg-kaspa text-bg-darker'
-                        : 'bg-kaspa/10 text-kaspa border border-kaspa/30 group-hover:bg-kaspa/20'
-                    }`}>
-                      {connectedWalletType === 'METAMASK' ? 'Connected' : 'Connect'}
-                    </span>
+                    {connecting === 'METAMASK' ? (
+                      <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 bg-kaspa/10 text-kaspa border border-kaspa/30 flex items-center gap-1.5">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> Waiting…
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
+                        connectedWalletType === 'METAMASK'
+                          ? 'bg-kaspa text-bg-darker'
+                          : hasMetaMask
+                            ? 'bg-kaspa/10 text-kaspa border border-kaspa/30 group-hover:bg-kaspa/20'
+                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {connectedWalletType === 'METAMASK' ? 'Connected' : hasMetaMask ? 'Connect' : 'Not installed'}
+                      </span>
+                    )}
                   </button>
 
-                  {/* Kasware — coming soon (Kaspa-native, EVM support later) */}
-                  <div className="w-full p-3.5 rounded-2xl border border-border-dark/60 bg-bg-darker/40 flex items-center gap-3.5 opacity-60 cursor-not-allowed select-none">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#14b8a6] to-[#0f766e] flex items-center justify-center shrink-0 font-display font-bold text-white text-sm">Ka</div>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-semibold text-gray-200 block">Kasware</span>
-                      <span className="text-[11px] text-gray-500">Kaspa-native wallet</span>
+                  {/* Kasware — Kaspa-native L1 wallet (real connect when installed) */}
+                  <button
+                    id="connect-kasware-btn"
+                    onClick={connectKasware}
+                    disabled={connecting !== null || !hasKasware}
+                    className={`group w-full p-3.5 rounded-2xl border text-left transition-all flex items-center gap-3.5 ${
+                      connectedWalletType === 'KASWARE'
+                        ? 'bg-kaspa/10 border-kaspa'
+                        : hasKasware
+                          ? 'bg-bg-darker border-border-dark hover:border-kaspa/50 hover:bg-bg-card'
+                          : 'bg-bg-darker/40 border-border-dark/60 opacity-70 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="w-11 h-11 rounded-xl shrink-0 shadow-md overflow-hidden">
+                      <KaswareLogo className="w-full h-full" />
                     </div>
-                    <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-bg-dark text-gray-500 border border-border-dark shrink-0">Soon</span>
-                  </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-semibold text-white block">Kasware</span>
+                      <span className="text-[11px] text-gray-400">
+                        {hasKasware ? 'Kaspa L1 wallet · signatures & balance' : 'Kaspa-native wallet · extension not detected'}
+                      </span>
+                    </div>
+                    {connecting === 'KASWARE' ? (
+                      <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 bg-kaspa/10 text-kaspa border border-kaspa/30 flex items-center gap-1.5">
+                        <RefreshCw className="w-3 h-3 animate-spin" /> Waiting…
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
+                        connectedWalletType === 'KASWARE'
+                          ? 'bg-kaspa text-bg-darker'
+                          : hasKasware
+                            ? 'bg-kaspa/10 text-kaspa border border-kaspa/30 group-hover:bg-kaspa/20'
+                            : 'bg-bg-dark text-gray-500 border border-border-dark'
+                      }`}>
+                        {connectedWalletType === 'KASWARE' ? 'Connected' : hasKasware ? 'Connect' : 'Not installed'}
+                      </span>
+                    )}
+                  </button>
 
-                  {/* Kaspium — coming soon */}
-                  <div className="w-full p-3.5 rounded-2xl border border-border-dark/60 bg-bg-darker/40 flex items-center gap-3.5 opacity-60 cursor-not-allowed select-none">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#5b21b6] flex items-center justify-center shrink-0 font-display font-bold text-white text-sm">Kp</div>
+                  {/* Kaspium — mobile-only wallet, no browser injection */}
+                  <div className="w-full p-3.5 rounded-2xl border border-border-dark/60 bg-bg-darker/40 flex items-center gap-3.5 opacity-70 select-none">
+                    <div className="w-11 h-11 rounded-xl shrink-0 shadow-md overflow-hidden">
+                      <KaspiumLogo className="w-full h-full" />
+                    </div>
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-semibold text-gray-200 block">Kaspium</span>
-                      <span className="text-[11px] text-gray-500">Mobile wallet</span>
+                      <span className="text-[11px] text-gray-500">Mobile wallet · WalletConnect soon</span>
                     </div>
                     <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-bg-dark text-gray-500 border border-border-dark shrink-0">Soon</span>
                   </div>

@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Zap, AlertOctagon, TrendingUp, TrendingDown, Layers, ShieldAlert, Swords, HelpCircle, Flame, X, Sparkles, Info } from 'lucide-react';
+import CandleChart from './CandleChart';
 import { Token, Position, OrderBookItem, TradeHistoryItem } from '../types';
 import { getFeePercentage, calculateLiquidationPrice, calculatePositionSize } from '../utils/math';
-import { quoteOpenCost, isSupportedNetwork, getActiveNetwork, getHouseRules, HouseRules } from '../web3/kaslev';
+import { quoteOpenCost, isSupportedNetwork, getActiveNetwork, getHouseRules, getOraclePrice, HouseRules } from '../web3/kaslev';
 
 interface TradingViewProps {
   tokens: Token[];
@@ -27,50 +27,6 @@ interface TradingViewProps {
   isWalletConnected?: boolean;
   connectedWalletType?: 'KASPIUM' | 'KASWARE' | 'KDX' | 'METAMASK' | null;
 }
-
-interface CandleData {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  body: [number, number];
-  wick: [number, number];
-  isUp: boolean;
-  volume: number;
-}
-
-const CandlestickTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    const data = payload[0].payload as CandleData;
-    return (
-      <div className="bg-bg-card border border-border-dark p-3 rounded-lg shadow-xl font-mono text-xs text-gray-300 space-y-1 z-50">
-        <div className="text-kaspa font-bold border-b border-border-dark pb-1 mb-1">{data.time}</div>
-        <div className="flex justify-between gap-4">
-          <span>Open:</span>
-          <span className="text-white font-semibold">${data.open.toFixed(6)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>High:</span>
-          <span className="text-emerald-400 font-semibold">${data.high.toFixed(6)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Low:</span>
-          <span className="text-rose-400 font-semibold">${data.low.toFixed(6)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Close:</span>
-          <span className="text-white font-semibold">${data.close.toFixed(6)}</span>
-        </div>
-        <div className="flex justify-between gap-4">
-          <span>Volume:</span>
-          <span className="text-gray-400 font-semibold">{data.volume.toLocaleString()}</span>
-        </div>
-      </div>
-    );
-  }
-  return null;
-};
 
 export default function TradingView({
   tokens,
@@ -97,102 +53,9 @@ export default function TradingView({
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [quickCollateral, setQuickCollateral] = useState('100');
 
-  // Generate some real-time candlestick chart data for active token
-  const [chartData, setChartData] = useState<CandleData[]>([]);
-  const tickCountRef = useRef(0);
-  
   // Simulated order book
   const [bids, setBids] = useState<OrderBookItem[]>([]);
   const [asks, setAsks] = useState<OrderBookItem[]>([]);
-
-  // Trigger chart data generation whenever active token changes
-  useEffect(() => {
-    const basePrice = activeToken.price;
-    const data: CandleData[] = [];
-    const now = new Date();
-    let currentOpen = basePrice * (1 - (Math.random() - 0.5) * 0.04);
-    
-    for (let i = 24; i >= 0; i--) {
-      const timeStr = new Date(now.getTime() - i * 15 * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const change = (Math.random() - 0.48) * 0.015 * currentOpen;
-      const currentClose = currentOpen + change;
-      const high = Math.max(currentOpen, currentClose) + Math.random() * 0.004 * currentOpen;
-      const low = Math.min(currentOpen, currentClose) - Math.random() * 0.004 * currentOpen;
-      const isUp = currentClose >= currentOpen;
-      
-      data.push({
-        time: timeStr,
-        open: parseFloat(currentOpen.toFixed(6)),
-        high: parseFloat(high.toFixed(6)),
-        low: parseFloat(low.toFixed(6)),
-        close: parseFloat(currentClose.toFixed(6)),
-        body: [Math.min(currentOpen, currentClose), Math.max(currentOpen, currentClose)],
-        wick: [low, high],
-        isUp,
-        volume: Math.floor(Math.random() * 500000 + 100000),
-      });
-      currentOpen = currentClose;
-    }
-    setChartData(data);
-    tickCountRef.current = 0;
-  }, [activeToken]);
-
-  // Keep the chart updating in real time matching price ticks
-  useEffect(() => {
-    tickCountRef.current = 0;
-    const interval = setInterval(() => {
-      setChartData((prev) => {
-        if (prev.length === 0) return prev;
-        
-        tickCountRef.current += 1;
-        
-        if (tickCountRef.current >= 10) {
-          // Roll over to a new candle!
-          tickCountRef.current = 0;
-          const lastCandle = prev[prev.length - 1];
-          const nextTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          const newOpen = lastCandle.close;
-          const variance = (Math.random() - 0.5) * 0.0005 * activeToken.price;
-          const newClose = parseFloat((activeToken.price + variance).toFixed(6));
-          const high = Math.max(newOpen, newClose) + Math.random() * 0.001 * activeToken.price;
-          const low = Math.min(newOpen, newClose) - Math.random() * 0.001 * activeToken.price;
-          
-          const newCandle: CandleData = {
-            time: nextTime,
-            open: parseFloat(newOpen.toFixed(6)),
-            close: parseFloat(newClose.toFixed(6)),
-            high: parseFloat(high.toFixed(6)),
-            low: parseFloat(low.toFixed(6)),
-            body: [Math.min(newOpen, newClose), Math.max(newOpen, newClose)],
-            wick: [low, high],
-            isUp: newClose >= newOpen,
-            volume: Math.floor(Math.random() * 80000 + 10000),
-          };
-          
-          return [...prev.slice(1), newCandle];
-        } else {
-          // Update the current last candle
-          const updated = [...prev];
-          const lastCandle = { ...updated[updated.length - 1] };
-          
-          const variance = (Math.random() - 0.5) * 0.0004 * activeToken.price;
-          const livePrice = parseFloat((activeToken.price + variance).toFixed(6));
-          
-          lastCandle.close = livePrice;
-          lastCandle.high = parseFloat(Math.max(lastCandle.high, livePrice).toFixed(6));
-          lastCandle.low = parseFloat(Math.min(lastCandle.low, livePrice).toFixed(6));
-          lastCandle.body = [Math.min(lastCandle.open, livePrice), Math.max(lastCandle.open, livePrice)];
-          lastCandle.wick = [lastCandle.low, lastCandle.high];
-          lastCandle.isUp = lastCandle.close >= lastCandle.open;
-          
-          updated[updated.length - 1] = lastCandle;
-          return updated;
-        }
-      });
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, [activeToken]);
 
   // Simulated live Order Book updates
   useEffect(() => {
@@ -261,6 +124,33 @@ export default function TradingView({
   }, [onChainNetwork, activeChain, collateralNum, parsedLeverage]);
   const nativeSymbol = onChainNetwork ? getActiveNetwork().nativeCurrency.symbol : 'KAS';
 
+  // On-chain oracle health. The median oracle reports price 0 when it has fewer than
+  // minSources fresh reports — in that state every openPosition tx reverts (ZeroPrice),
+  // so tell the user BEFORE they sign instead of letting the wallet call fail.
+  // 'unknown' = still checking / not applicable; 'live' = tradeable; 'stale' = paused.
+  const [oracleHealth, setOracleHealth] = useState<{ status: 'unknown' | 'live' | 'stale'; price: number }>({ status: 'unknown', price: 0 });
+  useEffect(() => {
+    if (!onChainNetwork) {
+      setOracleHealth({ status: 'unknown', price: 0 });
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { price } = await getOraclePrice('KAS');
+        if (!cancelled) setOracleHealth({ status: price > 0 ? 'live' : 'stale', price });
+      } catch {
+        if (!cancelled) setOracleHealth({ status: 'unknown', price: 0 });
+      }
+    };
+    check();
+    const t = setInterval(check, 30000); // matches the keeper's push cadence
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [onChainNetwork, activeChain]);
+
   // House-edge parameters, read once per network from the contract itself so the
   // disclosure below can never drift from what's actually deployed.
   const [houseRules, setHouseRules] = useState<HouseRules | null>(null);
@@ -286,20 +176,6 @@ export default function TradingView({
 
   const estLiquidation = activeToken ? calculateLiquidationPrice('LONG', activeToken.price, parsedLeverage) : 0;
   const estLiquidationShort = activeToken ? calculateLiquidationPrice('SHORT', activeToken.price, parsedLeverage) : 0;
-
-  // Find minimum and maximum price across all candles to bound Y-axis perfectly
-  const getChartYDomain = () => {
-    if (chartData.length === 0) return ['auto', 'auto'];
-    let min = Infinity;
-    let max = -Infinity;
-    chartData.forEach(candle => {
-      if (candle.low < min) min = candle.low;
-      if (candle.high > max) max = candle.high;
-    });
-    // Add 8% padding to prevent candlesticks from hugging the chart ceiling/floor
-    const padding = (max - min) * 0.08 || 0.000001;
-    return [min - padding, max + padding];
-  };
 
   const kasPrice = tokens.find((t) => t.id === 'kas')?.price || 0.1542;
 
@@ -382,47 +258,22 @@ export default function TradingView({
       {/* LEFT PORTION: Chart & Positions (Col Span 8) */}
       <div className="lg:col-span-8 flex flex-col gap-5">
         
-        {/* Real-time Recharts Chart */}
-        <div className="bg-bg-dark rounded-xl border border-border-dark p-4 shadow-lg flex flex-col h-[350px] relative" id="trading-chart-card">
-          <div className="flex items-center justify-between mb-2">
+        {/* Live market chart — TradingView lightweight-charts, real candles + volume */}
+        <div className="bg-bg-dark rounded-xl border border-border-dark shadow-lg flex flex-col h-[420px] relative overflow-hidden" id="trading-chart-card">
+          <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark/60">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-kaspa animate-pulse" />
-              <h3 className="font-display font-bold text-sm text-white">{activeToken.symbol} Live Price Feed</h3>
-              <span className="text-[9px] text-gray-500 font-mono">(live price · simulated candles)</span>
+              <h3 className="font-display font-bold text-sm text-white tracking-wide">{activeToken.symbol} / USDT</h3>
+              <span className="text-[9px] text-gray-500 font-mono uppercase tracking-wider">live price · simulated candles</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-bg-darker px-2.5 py-1 rounded text-[10px] font-mono text-gray-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{isKdxConnected ? 'KDX Stream: Connected' : 'Standard Oracle connected'}</span>
+            <div className="flex items-center gap-1.5 bg-bg-darker px-2.5 py-1 rounded-md text-[10px] font-mono text-gray-400 border border-border-dark/60">
+              <span className="w-1.5 h-1.5 rounded-full bg-kaspa animate-pulse" />
+              <span>{isKdxConnected ? 'KDX Stream · Connected' : 'Oracle Feed · Connected'}</span>
             </div>
           </div>
 
-          <div className="flex-1 w-full" id="responsive-chart-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} barGap="-100%" margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--theme-border-dark)" opacity={0.25} />
-                <XAxis dataKey="time" stroke="#6b7280" fontSize={9} tickLine={false} />
-                <YAxis 
-                  domain={getChartYDomain()} 
-                  stroke="#6b7280" 
-                  fontSize={9} 
-                  tickLine={false} 
-                  tickFormatter={(val) => typeof val === 'number' ? val.toFixed(6) : val}
-                />
-                <Tooltip content={<CandlestickTooltip />} />
-                {/* Wick Bar (low to high range, thin width) */}
-                <Bar dataKey="wick" barSize={1.5}>
-                  {chartData.map((entry, index) => (
-                    <Cell key={`wick-${index}`} fill={entry.isUp ? '#10b981' : '#f43f5e'} />
-                  ))}
-                </Bar>
-                {/* Body Bar (open to close range, wider width) */}
-                <Bar dataKey="body" barSize={7}>
-                  {chartData.map((entry, index) => (
-                    <Cell key={`body-${index}`} fill={entry.isUp ? '#10b981' : '#f43f5e'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="flex-1 min-h-0 px-1 pb-1 pt-6">
+            <CandleChart symbol={activeToken.symbol} price={activeToken.price} />
           </div>
         </div>
 
@@ -540,9 +391,37 @@ export default function TradingView({
               <h3 className="font-display font-bold text-sm text-white uppercase tracking-wider">New Leverage Trade</h3>
             </div>
             
-            <div className="flex items-center gap-1.5 bg-bg-darker px-2 py-0.5 rounded border border-border-dark">
-              <span className={`w-1.5 h-1.5 rounded-full ${isWalletConnected ? 'bg-kaspa' : 'bg-gray-600'}`} />
-              <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{activeChain}</span>
+            <div className="flex items-center gap-1.5">
+              {onChainNetwork && (
+                <div
+                  id="oracle-health-chip"
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-mono text-[10px] font-bold uppercase ${
+                    oracleHealth.status === 'live'
+                      ? 'bg-kaspa/10 border-kaspa/40 text-kaspa'
+                      : oracleHealth.status === 'stale'
+                        ? 'bg-rose-500/10 border-rose-500/40 text-rose-400'
+                        : 'bg-bg-darker border-border-dark text-gray-500'
+                  }`}
+                  title={
+                    oracleHealth.status === 'live'
+                      ? `On-chain oracle price: $${oracleHealth.price.toFixed(5)}`
+                      : oracleHealth.status === 'stale'
+                        ? 'The on-chain price feed has no fresh reports — real trades revert until the keeper pushes a price.'
+                        : 'Checking the on-chain price feed…'
+                  }
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      oracleHealth.status === 'live' ? 'bg-kaspa animate-pulse' : oracleHealth.status === 'stale' ? 'bg-rose-500' : 'bg-gray-600'
+                    }`}
+                  />
+                  {oracleHealth.status === 'live' ? 'Oracle Live' : oracleHealth.status === 'stale' ? 'Oracle Stale' : 'Oracle …'}
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 bg-bg-darker px-2 py-0.5 rounded border border-border-dark">
+                <span className={`w-1.5 h-1.5 rounded-full ${isWalletConnected ? 'bg-kaspa' : 'bg-gray-600'}`} />
+                <span className="text-[10px] font-mono text-gray-400 font-bold uppercase">{activeChain}</span>
+              </div>
             </div>
           </div>
 
@@ -687,14 +566,29 @@ export default function TradingView({
               </div>
             </label>
 
+            {/* Oracle-stale warning: a real tx would revert with ZeroPrice, so say it up front */}
+            {onChainNetwork && oracleHealth.status === 'stale' && (
+              <div
+                id="oracle-stale-warning"
+                className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 rounded-lg p-2.5 text-[10px] font-mono leading-tight"
+              >
+                <Info className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                <span className="text-rose-300">
+                  <span className="font-bold text-rose-400">On-chain price feed is stale.</span> Real trades on{' '}
+                  {getActiveNetwork().name} are paused until a keeper pushes a fresh price — transactions sent now will
+                  revert. Simulated trading still works.
+                </span>
+              </div>
+            )}
+
             {/* OPEN POSITIONS EXECUTION ACTIONS */}
             <div className="grid grid-cols-2 gap-3 pt-1">
               <button
                 id="order-open-long-btn"
                 onClick={() => onOpenPosition('LONG', parsedLeverage, collateralNum)}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-emerald-500/20"
+                className="bg-gradient-to-b from-emerald-500 to-emerald-700 hover:from-emerald-400 hover:to-emerald-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-emerald-400/30 shadow-[0_4px_16px_rgba(16,185,129,0.25)] hover:shadow-[0_6px_20px_rgba(16,185,129,0.4)]"
               >
-                <TrendingUp className="w-4.5 h-4.5 text-emerald-200" />
+                <TrendingUp className="w-4.5 h-4.5 text-emerald-100" />
                 <span className="text-[12px] font-black tracking-wide">BUY / LONG</span>
                 <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
               </button>
@@ -702,9 +596,9 @@ export default function TradingView({
               <button
                 id="order-open-short-btn"
                 onClick={() => onOpenPosition('SHORT', parsedLeverage, collateralNum)}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-rose-500/20"
+                className="bg-gradient-to-b from-rose-500 to-rose-700 hover:from-rose-400 hover:to-rose-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-rose-400/30 shadow-[0_4px_16px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)]"
               >
-                <TrendingDown className="w-4.5 h-4.5 text-rose-200" />
+                <TrendingDown className="w-4.5 h-4.5 text-rose-100" />
                 <span className="text-[12px] font-black tracking-wide">SELL / SHORT</span>
                 <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
               </button>
@@ -713,19 +607,36 @@ export default function TradingView({
         </div>
 
         {/* ORDER BOOK SECTION */}
-        <div className="bg-bg-dark rounded-xl border border-border-dark p-4 shadow-lg space-y-3" id="order-book-card">
+        <div className="bg-bg-dark rounded-xl border border-border-dark p-4 shadow-lg space-y-2" id="order-book-card">
           <div className="flex justify-between items-center border-b border-border-dark pb-2">
-            <h3 className="font-display font-bold text-xs text-white uppercase tracking-wider">Order Book (Simulated)</h3>
-            <span className="text-[10px] text-gray-400 font-mono">Spread: 0.05%</span>
+            <h3 className="font-display font-bold text-xs text-white uppercase tracking-wider">Order Book <span className="text-gray-500 font-mono normal-case">· sim</span></h3>
+            <span className="text-[10px] text-gray-400 font-mono">
+              Spread:{' '}
+              <span className="text-white font-semibold">
+                {asks.length && bids.length
+                  ? (((asks[asks.length - 1].price - bids[0].price) / activeToken.price) * 100).toFixed(3)
+                  : '0.050'}%
+              </span>
+            </span>
+          </div>
+
+          {/* column headers */}
+          <div className="flex justify-between px-1 text-[9px] font-mono text-gray-500 uppercase tracking-wider">
+            <span>Price (USDT)</span>
+            <span>Amount</span>
+            <span>Total</span>
           </div>
 
           <div className="space-y-1 text-[11px] font-mono">
             {/* Ask Stack (Sell orders) - Red */}
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {asks.map((ask, idx) => (
-                <div key={idx} className="flex justify-between text-red-400 relative h-5 items-center px-1 overflow-hidden">
-                  <div className="absolute right-0 top-0 bottom-0 bg-red-500/5" style={{ width: `${Math.min(100, (ask.total / 500000) * 100)}%` }} />
-                  <span className="z-10 font-bold">${ask.price.toFixed(6)}</span>
+                <div key={idx} className="flex justify-between text-rose-400 relative h-5 items-center px-1 overflow-hidden rounded-sm">
+                  <div
+                    className="absolute right-0 top-0 bottom-0 bg-rose-500/10 transition-[width] duration-500 ease-out"
+                    style={{ width: `${Math.min(100, (ask.total / 500000) * 100)}%` }}
+                  />
+                  <span className="z-10 font-semibold">{ask.price.toFixed(6)}</span>
                   <span className="z-10 text-gray-300">{ask.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   <span className="z-10 text-gray-500">{ask.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 </div>
@@ -733,16 +644,25 @@ export default function TradingView({
             </div>
 
             {/* Mid Price */}
-            <div className="text-center py-1 bg-bg-darker border-y border-border-dark text-white font-bold my-1 text-xs">
-              ${activeToken.price.toFixed(6)} <span className="text-emerald-400">↑</span>
+            <div className="flex items-center justify-center gap-2 py-1.5 bg-bg-darker rounded-md border border-border-dark/70 my-1">
+              <span className={`text-sm font-bold ${activeToken.change24h >= 0 ? 'text-kaspa' : 'text-rose-400'}`}>
+                {activeToken.price.toFixed(6)}
+              </span>
+              {activeToken.change24h >= 0
+                ? <TrendingUp className="w-3.5 h-3.5 text-kaspa" />
+                : <TrendingDown className="w-3.5 h-3.5 text-rose-400" />}
+              <span className="text-[10px] text-gray-500">mid</span>
             </div>
 
             {/* Bid Stack (Buy orders) - Green */}
-            <div className="space-y-0.5">
+            <div className="space-y-px">
               {bids.map((bid, idx) => (
-                <div key={idx} className="flex justify-between text-emerald-400 relative h-5 items-center px-1 overflow-hidden">
-                  <div className="absolute right-0 top-0 bottom-0 bg-emerald-500/5" style={{ width: `${Math.min(100, (bid.total / 500000) * 100)}%` }} />
-                  <span className="z-10 font-bold">${bid.price.toFixed(6)}</span>
+                <div key={idx} className="flex justify-between text-kaspa relative h-5 items-center px-1 overflow-hidden rounded-sm">
+                  <div
+                    className="absolute right-0 top-0 bottom-0 bg-kaspa/10 transition-[width] duration-500 ease-out"
+                    style={{ width: `${Math.min(100, (bid.total / 500000) * 100)}%` }}
+                  />
+                  <span className="z-10 font-semibold">{bid.price.toFixed(6)}</span>
                   <span className="z-10 text-gray-300">{bid.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                   <span className="z-10 text-gray-500">{bid.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 </div>

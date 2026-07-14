@@ -35,6 +35,9 @@ const PERPS_ABI = [
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+/** Chains that enforce a minimum gas price (wei) — mirrors src/web3/config.ts. */
+const MIN_GAS_PRICE_WEI = { 38836: 2000000000000n /* Igra Galleon: 2000 gwei */ };
+
 async function livePrice() {
   // Prefer the app's own proxy; fall back to Gate.io directly.
   try {
@@ -50,11 +53,11 @@ async function livePrice() {
   return null;
 }
 
-async function cycle(provider, signer, oracle, perps) {
+async function cycle(provider, signer, oracle, perps, txOpts) {
   // --- 1. Oracle upkeep ---
   const price = await livePrice();
   if (price && price.usd > 0) {
-    const tx = await oracle.setPrice(KAS_ID, ethers.parseEther(price.usd.toFixed(8)));
+    const tx = await oracle.setPrice(KAS_ID, ethers.parseEther(price.usd.toFixed(8)), txOpts);
     await tx.wait();
     log(`oracle KAS = $${price.usd} (${price.src})  tx ${tx.hash.slice(0, 12)}…`);
   } else {
@@ -71,7 +74,7 @@ async function cycle(provider, signer, oracle, perps) {
     open++;
     if (await perps.isLiquidatable(id)) {
       try {
-        const tx = await perps.liquidate(id);
+        const tx = await perps.liquidate(id, txOpts);
         await tx.wait();
         liquidated++;
         log(`⚡ liquidated position #${id} (trader ${p.trader.slice(0, 8)}…)  tx ${tx.hash.slice(0, 12)}…`);
@@ -83,12 +86,29 @@ async function cycle(provider, signer, oracle, perps) {
   log(`scan: ${open} open position(s), ${liquidated} liquidated`);
 }
 
+/**
+ * Connect to an RPC and verify it really is the chain the deployment record was made for.
+ * A custom RPC (KASPA_L2_RPC_URL) that points at a DIFFERENT chain would otherwise send
+ * txs to whatever contracts happen to live at the same addresses there — silently.
+ */
+async function connectVerified(rec) {
+  const override = process.env.KASPA_L2_RPC_URL;
+  for (const rpc of override ? [override, rec.rpc] : [rec.rpc]) {
+    const provider = new ethers.JsonRpcProvider(rpc);
+    const chainId = Number((await provider.getNetwork()).chainId);
+    if (chainId === rec.chainId) return provider;
+    log(`WARN: RPC ${rpc} is chain ${chainId}, but ${rec.network} is chain ${rec.chainId} — skipping it`);
+    provider.destroy();
+  }
+  throw new Error(`no RPC matches chain ${rec.chainId} for ${rec.network}`);
+}
+
 async function main() {
   const recPath = path.join(__dirname, '..', 'deployments', NETWORK + '.json');
   if (!fs.existsSync(recPath)) throw new Error('no deployment record at ' + recPath + ' — deploy first');
   const rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
 
-  const provider = new ethers.JsonRpcProvider(process.env.KASPA_L2_RPC_URL || rec.rpc);
+  const provider = await connectVerified(rec);
   const key = process.env.KEEPER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
   if (!key) throw new Error('set KEEPER_PRIVATE_KEY or DEPLOYER_PRIVATE_KEY in .env');
   const signer = new ethers.Wallet(key.startsWith('0x') ? key : '0x' + key, provider);
@@ -100,10 +120,12 @@ async function main() {
   log(`signer ${signer.address}  reporter=${await oracle.isReporter(signer.address)}`);
   log(`perps ${rec.contracts.KasLevPerps}`);
 
+  const txOpts = MIN_GAS_PRICE_WEI[rec.chainId] ? { gasPrice: MIN_GAS_PRICE_WEI[rec.chainId] } : {};
+
   const once = (process.env.KEEPER_ONCE || '').toLowerCase() === 'true';
   do {
     try {
-      await cycle(provider, signer, oracle, perps);
+      await cycle(provider, signer, oracle, perps, txOpts);
     } catch (e) {
       log('cycle error:', e.shortMessage || e.message);
     }
