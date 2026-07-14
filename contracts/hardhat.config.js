@@ -40,5 +40,24 @@ module.exports = {
       gasPrice: 2_000_000_000_000, // Galleon enforces a 2000 gwei minimum
       accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
     },
+
+    // ------------------------- MAINNETS (real KAS) -------------------------
+    // Deploying here spends REAL funds. Read contracts/MAINNET.md first — it
+    // covers oracle reporters, payout caps, keeper redundancy, and funding.
+
+    // Kasplex zkEVM mainnet (live since 2025-08-31). Explorer: https://explorer.kasplex.org
+    kasplexMainnet: {
+      url: process.env.KASPLEX_MAINNET_RPC_URL || 'https://evmrpc.kasplex.org',
+      chainId: 202555,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    },
+    // Igra mainnet (chain 38833, per the EVM chain registry). Explorer: https://explorer.igralabs.com
+    // Verify the current minimum gas price before deploying; Galleon testnet enforced 2000 gwei.
+    igraMainnet: {
+      url: process.env.IGRA_MAINNET_RPC_URL || 'https://rpc.igralabs.com:8545',
+      chainId: 38833,
+      gasPrice: 2_000_000_000_000,
+      accounts: process.env.DEPLOYER_PRIVATE_KEY ? [process.env.DEPLOYER_PRIVATE_KEY] : [],
+    },
   },
 };

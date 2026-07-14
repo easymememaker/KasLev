@@ -93,6 +93,16 @@ async function main() {
       explorer: 'https://explorer.galleon-testnet.igralabs.com',
       nativeCurrency: 'iKAS',
     },
+    kasplexMainnet: {
+      rpc: process.env.KASPLEX_MAINNET_RPC_URL || 'https://evmrpc.kasplex.org',
+      explorer: 'https://explorer.kasplex.org',
+      nativeCurrency: 'KAS',
+    },
+    igraMainnet: {
+      rpc: process.env.IGRA_MAINNET_RPC_URL || 'https://rpc.igralabs.com:8545',
+      explorer: 'https://explorer.igralabs.com',
+      nativeCurrency: 'iKAS',
+    },
   }[hre.network.name] || { rpc: '', explorer: '', nativeCurrency: 'KAS' };
 
   const record = {
