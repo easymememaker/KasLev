@@ -25,7 +25,12 @@ const NETWORK = process.env.KEEPER_NETWORK || 'kasplexTestnet';
 const INTERVAL = Number(process.env.KEEPER_INTERVAL_MS || 30000);
 const KAS_ID = ethers.keccak256(ethers.toUtf8Bytes('KAS'));
 
-const ORACLE_ABI = ['function setPrice(bytes32,uint256)', 'function getPrice(bytes32) view returns (uint256,uint256)', 'function isReporter(address) view returns (bool)'];
+const ORACLE_ABI = [
+  'function setPrice(bytes32,uint256)',
+  'function getPrice(bytes32) view returns (uint256,uint256)',
+  'function isReporter(address) view returns (bool)',
+  'function maxAge() view returns (uint256)',
+];
 const PERPS_ABI = [
   'function nextPositionId() view returns (uint256)',
   'function positions(uint256) view returns (address trader, bytes32 assetId, bool isLong, bool closed, uint256 leverage, uint256 margin, uint256 entryPrice, uint16 feeBps, uint256 openedAt)',
@@ -72,13 +77,31 @@ const deadline = (promise, ms, label) =>
 
 async function cycle(provider, signer, oracle, perps, txOpts) {
   // --- 1. Oracle upkeep ---
-  const price = await livePrice();
-  if (price && price.usd > 0) {
-    const tx = await oracle.setPrice(KAS_ID, ethers.parseEther(price.usd.toFixed(8)), txOpts);
-    await tx.wait();
-    log(`oracle KAS = $${price.usd} (${price.src})  tx ${tx.hash.slice(0, 12)}…`);
-  } else {
-    log('WARN: could not fetch a live price this cycle');
+  // Gas on these L2s is 2000 gwei — every push costs real faucet budget. Skip the
+  // push while the on-chain price is still comfortably fresh (younger than half
+  // the oracle's freshness window); push only when it actually needs renewing.
+  let needsPush = true;
+  try {
+    const [p, updatedAt] = await oracle.getPrice(KAS_ID);
+    const maxAge = Number(await oracle.maxAge());
+    const age = Math.floor(Date.now() / 1000) - Number(updatedAt);
+    if (p > 0n && age < maxAge / 2) {
+      needsPush = false;
+      log(`oracle price is fresh (age ${age}s < ${Math.floor(maxAge / 2)}s) — skipping push to save gas`);
+    }
+  } catch {
+    /* can't read freshness -> push */
+  }
+
+  if (needsPush) {
+    const price = await livePrice();
+    if (price && price.usd > 0) {
+      const tx = await oracle.setPrice(KAS_ID, ethers.parseEther(price.usd.toFixed(8)), txOpts);
+      await tx.wait();
+      log(`oracle KAS = $${price.usd} (${price.src})  tx ${tx.hash.slice(0, 12)}…`);
+    } else {
+      log('WARN: could not fetch a live price this cycle');
+    }
   }
 
   // --- 2. Liquidation scan ---
