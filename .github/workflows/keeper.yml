@@ -8,14 +8,15 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch:
 
+# A fresh scheduled run supersedes the previous looping one near its natural end.
 concurrency:
   group: keeper
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   keeper:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 58
     env:
       KEEPER_PRIVATE_KEY: ${{ secrets.KEEPER_PRIVATE_KEY }}
     steps:
@@ -26,12 +27,15 @@ jobs:
           cache: npm
       # Root deps provide ethers + dotenv; keeper resolves them from here.
       - run: npm ci --omit=dev
-      # continue-on-error: a testnet having an off day should show a red step,
-      # not fail the whole scheduled run every 10 minutes.
-      - name: Push price — Kasplex zkEVM testnet
-        continue-on-error: true
-        run: KEEPER_ONCE=true KEEPER_NETWORK=kasplexTestnet node contracts/scripts/keeper.js
-      - name: Push price — Igra Galleon testnet
-        if: always() # one network failing must not starve the other
-        continue-on-error: true
-        run: KEEPER_ONCE=true KEEPER_NETWORK=igraGalleon node contracts/scripts/keeper.js
+      # GitHub's cron is best-effort (10-min schedules often gap 30-60 min), so
+      # each run loops for ~50 minutes pushing every 10 — full coverage even when
+      # the scheduler skips. Per-network failures are logged, never fatal.
+      - name: Keeper loop (5 pushes, 10 min apart, both networks)
+        run: |
+          for i in 1 2 3 4 5; do
+            echo "--- push round $i ---"
+            KEEPER_ONCE=true KEEPER_NETWORK=kasplexTestnet node contracts/scripts/keeper.js || echo "kasplex push failed (round $i)"
+            KEEPER_ONCE=true KEEPER_NETWORK=igraGalleon node contracts/scripts/keeper.js || echo "igra push failed (round $i)"
+            [ "$i" -lt 5 ] && sleep 600
+          done
+          exit 0
