@@ -41,6 +41,8 @@ interface NavbarProps {
   onBridgeTransfer: (direction: 'L1_TO_L2' | 'L2_TO_L1', amount: number, tokenSymbol: string) => void;
   tokens: Token[];
   triggerAlert?: (type: 'success' | 'error' | 'info', text: string) => void;
+  /** Increment to open the wallet modal from elsewhere (e.g. the trade panel CTA). */
+  openHubSignal?: number;
 }
 
 export default function Navbar({
@@ -69,9 +71,15 @@ export default function Navbar({
   onBridgeTransfer,
   tokens,
   triggerAlert,
+  openHubSignal = 0,
 }: NavbarProps) {
   const [copied, setCopied] = useState<string | null>(null);
   const [isHubOpen, setIsHubOpen] = useState(false);
+
+  // External "connect wallet" CTAs bump the signal to open the modal from here.
+  React.useEffect(() => {
+    if (openHubSignal > 0) setIsHubOpen(true);
+  }, [openHubSignal]);
   const [isTransparencyOpen, setIsTransparencyOpen] = useState(false);
   // Which wallet is mid-handshake (drives the per-card spinner + disables double clicks).
   const [connecting, setConnecting] = useState<'METAMASK' | 'KASWARE' | null>(null);

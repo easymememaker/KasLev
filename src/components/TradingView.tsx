@@ -26,6 +26,13 @@ interface TradingViewProps {
   userL2Address?: string;
   isWalletConnected?: boolean;
   connectedWalletType?: 'KASPIUM' | 'KASWARE' | 'KDX' | 'METAMASK' | null;
+  /** Live native balance of the connected wallet on the active L2 (null = unknown). */
+  walletBalance?: number | null;
+  /** Explicit paper-trading opt-in; with it off, trading needs a connected wallet. */
+  practiceMode?: boolean;
+  setPracticeMode?: (v: boolean) => void;
+  /** Ask the shell to open the wallet-connect modal. */
+  onRequestConnect?: () => void;
 }
 
 export default function TradingView({
@@ -43,11 +50,14 @@ export default function TradingView({
   userL2Address = '0x7F268b82Ac901E9b7c84D76de02D70B92AcC6C00',
   isWalletConnected = false,
   connectedWalletType = null,
+  walletBalance = null,
+  practiceMode = false,
+  setPracticeMode,
+  onRequestConnect,
 }: TradingViewProps) {
   // Trade setup form state
   const [collateralInput, setCollateralInput] = useState('10');
   const [customLeverage, setCustomLeverage] = useState('10'); // sane default: 10x
-  const [useInstantSignature, setUseInstantSignature] = useState(true);
 
   // Quick leverage action sidebar states
   const [showQuickActions, setShowQuickActions] = useState(false);
@@ -123,6 +133,15 @@ export default function TradingView({
     };
   }, [onChainNetwork, activeChain, collateralNum, parsedLeverage]);
   const nativeSymbol = onChainNetwork ? getActiveNetwork().nativeCurrency.symbol : 'KAS';
+
+  // Real-exchange gating: on-chain trading needs MetaMask; otherwise only the
+  // explicitly-enabled practice mode may simulate.
+  const isTradeReady = isWalletConnected && connectedWalletType === 'METAMASK';
+  const totalCostKas = onChainNetwork && chainQuote ? chainQuote.totalKas : collateralNum + totalOpenFee;
+  const insufficientBalance = isTradeReady && walletBalance !== null && totalCostKas > walletBalance;
+  const faucetUrl = onChainNetwork && getActiveNetwork().key === 'L2_KASPLEX'
+    ? 'https://faucet.zealousswap.com/'
+    : 'https://app.kaspafinance.io/faucets';
 
   // On-chain oracle health. The median oracle reports price 0 when it has fewer than
   // minSources fresh reports — in that state every openPosition tx reverts (ZeroPrice),
@@ -449,8 +468,16 @@ export default function TradingView({
             {/* Collateral Input Selection (DEX style - chooseable, not range) */}
             <div>
               <div className="flex justify-between text-xs font-mono text-gray-400 mb-2">
-                <span>Select Collateral (KAS)</span>
-                <span>Balance: Simulated</span>
+                <span>Select Collateral ({nativeSymbol})</span>
+                <span>
+                  {isTradeReady && walletBalance !== null ? (
+                    <>Balance: <span className={insufficientBalance ? 'text-rose-400 font-bold' : 'text-white font-bold'}>{walletBalance.toLocaleString(undefined, { maximumFractionDigits: 3 })} {nativeSymbol}</span></>
+                  ) : practiceMode ? (
+                    <span className="text-amber-400">Practice balance · simulated</span>
+                  ) : (
+                    'Balance: —'
+                  )}
+                </span>
               </div>
               <div className="grid grid-cols-5 gap-1.5 font-mono" id="collateral-select-grid">
                 {[10, 50, 100, 500, 1000].map((amount) => {
@@ -551,18 +578,18 @@ export default function TradingView({
               </button>
             </div>
 
-            {/* Fast Execution Mode toggle */}
+            {/* Practice (paper trading) toggle — explicit, clearly labeled */}
             <label className="flex items-center gap-2 cursor-pointer bg-bg-darker/60 p-2 rounded border border-border-dark/60 select-none">
               <input
-                id="instant-signature-toggle"
+                id="practice-mode-toggle"
                 type="checkbox"
-                checked={useInstantSignature}
-                onChange={(e) => setUseInstantSignature(e.target.checked)}
-                className="accent-kaspa w-3.5 h-3.5 rounded"
+                checked={practiceMode}
+                onChange={(e) => setPracticeMode?.(e.target.checked)}
+                className="accent-amber-500 w-3.5 h-3.5 rounded"
               />
               <div className="text-[10px] font-mono leading-tight">
-                <span className="text-white block font-bold">Enable Fast Execution Mode</span>
-                <span className="text-gray-400">Performs client signatures locally to execute trades instantly.</span>
+                <span className="text-white block font-bold">Practice Mode <span className="text-amber-400">(simulated)</span></span>
+                <span className="text-gray-400">Paper-trade without a wallet — nothing is sent on-chain. Off = real on-chain trading only.</span>
               </div>
             </label>
 
@@ -581,28 +608,65 @@ export default function TradingView({
               </div>
             )}
 
-            {/* OPEN POSITIONS EXECUTION ACTIONS */}
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <button
-                id="order-open-long-btn"
-                onClick={() => onOpenPosition('LONG', parsedLeverage, collateralNum)}
-                className="bg-gradient-to-b from-emerald-500 to-emerald-700 hover:from-emerald-400 hover:to-emerald-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-emerald-400/30 shadow-[0_4px_16px_rgba(16,185,129,0.25)] hover:shadow-[0_6px_20px_rgba(16,185,129,0.4)]"
+            {/* Insufficient real balance — block before the wallet even opens */}
+            {isTradeReady && !practiceMode && insufficientBalance && (
+              <div
+                id="insufficient-balance-warning"
+                className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2.5 text-[10px] font-mono leading-tight"
               >
-                <TrendingUp className="w-4.5 h-4.5 text-emerald-100" />
-                <span className="text-[12px] font-black tracking-wide">BUY / LONG</span>
-                <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
-              </button>
+                <Info className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <span className="text-amber-200">
+                  <span className="font-bold text-amber-400">Not enough {nativeSymbol}.</span> This trade needs{' '}
+                  {totalCostKas.toFixed(2)} {nativeSymbol} (margin + fees) but the wallet holds{' '}
+                  {walletBalance?.toFixed(3)}.{' '}
+                  <a href={faucetUrl} target="_blank" rel="noreferrer" className="underline text-kaspa hover:text-kaspa-light">
+                    Get free testnet {nativeSymbol} →
+                  </a>
+                </span>
+              </div>
+            )}
 
+            {/* OPEN POSITIONS EXECUTION ACTIONS — a real DEX: no wallet, no trade */}
+            {!isTradeReady && !practiceMode ? (
               <button
-                id="order-open-short-btn"
-                onClick={() => onOpenPosition('SHORT', parsedLeverage, collateralNum)}
-                className="bg-gradient-to-b from-rose-500 to-rose-700 hover:from-rose-400 hover:to-rose-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-rose-400/30 shadow-[0_4px_16px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)]"
+                id="connect-to-trade-btn"
+                onClick={() => onRequestConnect?.()}
+                className="w-full bg-gradient-to-b from-kaspa to-kaspa-dark hover:from-kaspa-light hover:to-kaspa text-bg-darker font-display font-black text-sm py-3.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex items-center justify-center gap-2 border border-kaspa/40 shadow-[0_4px_16px_rgba(20,184,166,0.35)]"
               >
-                <TrendingDown className="w-4.5 h-4.5 text-rose-100" />
-                <span className="text-[12px] font-black tracking-wide">SELL / SHORT</span>
-                <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
+                <Zap className="w-4.5 h-4.5" />
+                CONNECT WALLET TO TRADE
               </button>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  id="order-open-long-btn"
+                  disabled={!practiceMode && insufficientBalance}
+                  onClick={() => onOpenPosition('LONG', parsedLeverage, collateralNum)}
+                  className="bg-gradient-to-b from-emerald-500 to-emerald-700 hover:from-emerald-400 hover:to-emerald-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-emerald-400/30 shadow-[0_4px_16px_rgba(16,185,129,0.25)] hover:shadow-[0_6px_20px_rgba(16,185,129,0.4)] disabled:transform-none disabled:shadow-none"
+                >
+                  <TrendingUp className="w-4.5 h-4.5 text-emerald-100" />
+                  <span className="text-[12px] font-black tracking-wide">BUY / LONG</span>
+                  <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
+                </button>
+
+                <button
+                  id="order-open-short-btn"
+                  disabled={!practiceMode && insufficientBalance}
+                  onClick={() => onOpenPosition('SHORT', parsedLeverage, collateralNum)}
+                  className="bg-gradient-to-b from-rose-500 to-rose-700 hover:from-rose-400 hover:to-rose-600 text-white font-display font-bold text-xs py-2.5 px-4 rounded-xl transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer flex flex-col items-center gap-0.5 border border-rose-400/30 shadow-[0_4px_16px_rgba(244,63,94,0.25)] hover:shadow-[0_6px_20px_rgba(244,63,94,0.4)] disabled:transform-none disabled:shadow-none"
+                >
+                  <TrendingDown className="w-4.5 h-4.5 text-rose-100" />
+                  <span className="text-[12px] font-black tracking-wide">SELL / SHORT</span>
+                  <span className="text-[9px] opacity-80 font-mono font-medium">Fee: {currentFeePercent}%</span>
+                </button>
+              </div>
+            )}
+
+            {practiceMode && (
+              <p className="text-center text-[10px] font-mono text-amber-400/80 -mt-1" id="practice-mode-note">
+                Practice mode — orders are simulated, nothing is sent on-chain.
+              </p>
+            )}
           </div>
         </div>
 

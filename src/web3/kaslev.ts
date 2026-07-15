@@ -124,6 +124,12 @@ function perpsWith(runner: any): Contract {
   return new Contract(getActiveNetwork().contracts.KasLevPerps, PERPS_ABI as unknown as string[], runner);
 }
 
+/** Native-coin balance (KAS/iKAS) of an address on the active network. */
+export async function getNativeBalance(address: string): Promise<number> {
+  const bal = await readProvider().getBalance(address);
+  return Number(ethers.formatEther(bal));
+}
+
 /** Read-only KAS/USD price (1e18) currently on the active network's oracle. */
 export async function getOraclePrice(symbol: string): Promise<{ price: number; updatedAt: number }> {
   const oracle = new Contract(getActiveNetwork().contracts.KasLevOracle, ORACLE_ABI as unknown as string[], readProvider());

@@ -24,6 +24,7 @@ import {
   getTraderPositions,
   getPositionCloseInfo,
   getVaultStats,
+  getNativeBalance,
   assetId,
   friendlyTxError,
 } from './web3/kaslev';
@@ -140,6 +141,20 @@ export default function App() {
 
   // Legacy wallet state fallback for KDX compatibility
   const [userWallet, setUserWallet] = useState<string>('kaspa:qqzjw5ur7fyq9q7la72shhcfcq02j76uetfque833g2l7e8vmjkt2eqf5egkf');
+
+  // Practice (paper-trading) mode — explicit opt-in. With it OFF, trading requires
+  // a connected wallet and runs on-chain only, like any real exchange.
+  const [practiceMode, setPracticeMode] = useState<boolean>(() => localStorage.getItem('kaslev_practice') === 'true');
+  useEffect(() => {
+    localStorage.setItem('kaslev_practice', String(practiceMode));
+  }, [practiceMode]);
+
+  // Signal for the Navbar to open its wallet modal (the trade panel's
+  // "Connect wallet" CTA lives in a different component).
+  const [walletHubSignal, setWalletHubSignal] = useState(0);
+
+  // Live native balance (KAS/iKAS) of the connected wallet on the active L2.
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
   // Remember which wallet was connected so a page reload restores the session.
   // Positions persist in localStorage; without this, the on-chain sync never
@@ -362,6 +377,29 @@ export default function App() {
       clearInterval(interval);
     };
   }, [isWalletConnected, connectedWalletType, activeChain, userL2Address, tokens]);
+
+  // Live wallet balance for the trade panel (real funds check before signing).
+  useEffect(() => {
+    if (!isWalletConnected || connectedWalletType !== 'METAMASK' || !isSupportedNetwork(activeChain)) {
+      setWalletBalance(null);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const bal = await getNativeBalance(userL2Address);
+        if (!cancelled) setWalletBalance(bal);
+      } catch {
+        /* transient RPC issue — keep last value */
+      }
+    };
+    load();
+    const interval = setInterval(load, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isWalletConnected, connectedWalletType, activeChain, userL2Address]);
 
   // ON-CHAIN SYNC: live vault stats (pool size, locked seed, unlock countdown)
   // for the Protocol Audits tab. Read-only — works without a wallet.
@@ -603,6 +641,19 @@ export default function App() {
   ) => {
     if (collateral <= 0) {
       triggerAlert('error', 'Enter a valid collateral amount in KAS.');
+      return;
+    }
+
+    // A real exchange does not trade without a wallet. Unless the user explicitly
+    // switched on Practice mode, a user-initiated trade requires MetaMask connected —
+    // otherwise we point them at the connect flow instead of silently paper-trading.
+    if (
+      source === 'user' &&
+      !practiceMode &&
+      !(isWalletConnected && connectedWalletType === 'METAMASK' && typeof (window as any).ethereum !== 'undefined')
+    ) {
+      triggerAlert('error', 'Connect your wallet to trade — or switch on Practice mode for a simulated session.');
+      setWalletHubSignal((s) => s + 1);
       return;
     }
 
@@ -997,6 +1048,7 @@ export default function App() {
         onBridgeTransfer={handleBridgeTransfer}
         tokens={tokens}
         triggerAlert={triggerAlert}
+        openHubSignal={walletHubSignal}
       />
 
       {/* FLOATING SYSTEM ALERTS */}
@@ -1039,7 +1091,7 @@ export default function App() {
                 tokens={tokens}
                 activeToken={activeToken}
                 setActiveToken={setActiveToken}
-                positions={positions}
+                positions={practiceMode ? positions : positions.filter((p) => p.id.startsWith('onchain-'))}
                 onOpenPosition={handleOpenPosition}
                 onClosePosition={handleClosePosition}
                 onEmergencyCloseAll={handleEmergencyCloseAll}
@@ -1050,6 +1102,10 @@ export default function App() {
                 userL2Address={userL2Address}
                 isWalletConnected={isWalletConnected}
                 connectedWalletType={connectedWalletType}
+                walletBalance={walletBalance}
+                practiceMode={practiceMode}
+                setPracticeMode={setPracticeMode}
+                onRequestConnect={() => setWalletHubSignal((s) => s + 1)}
               />
             </motion.div>
           )}
