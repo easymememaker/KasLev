@@ -192,9 +192,40 @@ export interface OnChainPosition {
   leverage: number;
   marginKas: number;
   entryPrice: number;
-  liquidationPrice: number;
-  pnlKas: number;
+  /** null while the oracle is stale (the view reverts) — keep prior UI values. */
+  liquidationPrice: number | null;
+  /** null while the oracle is stale (the view reverts) — keep prior UI values. */
+  pnlKas: number | null;
   closed: boolean;
+}
+
+export interface PositionCloseInfo {
+  exitPrice: number;
+  pnlKas: number;
+  liquidated: boolean;
+  txHash: string;
+}
+
+/**
+ * How a position left the books, from the contract's own PositionClosed event —
+ * lets the UI write an honest ledger entry for keeper liquidations and closes
+ * made outside this session.
+ */
+export async function getPositionCloseInfo(positionId: number): Promise<PositionCloseInfo | null> {
+  try {
+    const perps = perpsWith(readProvider());
+    const events = await perps.queryFilter(perps.filters.PositionClosed(positionId), -100_000);
+    const ev: any = events[events.length - 1];
+    if (!ev?.args) return null;
+    return {
+      exitPrice: Number(ethers.formatEther(ev.args.exitPrice)),
+      pnlKas: Number(ethers.formatEther(ev.args.pnl)),
+      liquidated: Boolean(ev.args.liquidated),
+      txHash: ev.transactionHash,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Quote the full cost (margin + dev fee + keeper fee) to open a position. */
@@ -262,13 +293,15 @@ export async function getTraderPositions(trader: string, symbolFor: (id: string)
     const id = Number(idBig);
     const p = await perps.positions(id);
     if (p.closed) continue;
-    let pnlKas = 0;
-    let liq = 0;
+    // These views revert while the oracle is stale — report null so the UI keeps
+    // its previous numbers instead of rendering $0 liquidation prices.
+    let pnlKas: number | null = null;
+    let liq: number | null = null;
     try {
       pnlKas = Number(ethers.formatEther(await perps.currentPnL(id)));
       liq = Number(ethers.formatEther(await perps.liquidationPrice(id)));
     } catch {
-      /* oracle may be stale */
+      /* oracle stale */
     }
     out.push({
       id,

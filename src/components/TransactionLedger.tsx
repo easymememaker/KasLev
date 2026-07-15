@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { TradeHistoryItem, LiquidityPool } from '../types';
 import { DEV_WALLET, USER_WALLET, VAULT_ADDRESS, generateTxId } from '../App';
+import { getActiveNetwork } from '../web3/kaslev';
 
 interface TransactionLedgerProps {
   tradeHistory: TradeHistoryItem[];
@@ -255,7 +256,10 @@ export default function TransactionLedger({
                     const isLong = item.type === 'LONG';
                     const isPositive = item.pnl > 0;
                     const dateStr = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    const displayTx = item.txId ? `${item.txId.substring(0, 8)}...${item.txId.substring(58)}` : 'Internal';
+                    // Real EVM L2 transactions carry a 0x hash — link them to the live
+                    // explorer instead of decorating them with simulated block numbers.
+                    const isRealTx = !!item.txId && item.txId.startsWith('0x') && item.txId.length === 66;
+                    const displayTx = item.txId ? `${item.txId.substring(0, 8)}...${item.txId.substring(item.txId.length - 6)}` : 'Internal';
                     
                     return (
                       <React.Fragment key={item.id}>
@@ -268,8 +272,23 @@ export default function TransactionLedger({
                           {/* Block Index & Timestamp */}
                           <td className="pl-4 py-3 text-[11px]">
                             <div className="flex items-center gap-1.5">
-                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping shrink-0" />
-                              <span className="text-white font-medium">{item.blueScore ? item.blueScore.toLocaleString() : '82,912,450'}</span>
+                              <span className={`w-1.5 h-1.5 rounded-full animate-ping shrink-0 ${isRealTx ? 'bg-kaspa' : 'bg-emerald-400'}`} />
+                              {isRealTx ? (
+                                <a
+                                  href={`${getActiveNetwork().explorer}/tx/${item.txId}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-kaspa font-medium hover:underline flex items-center gap-1"
+                                  title="View the real transaction on the L2 explorer"
+                                >
+                                  L2 on-chain <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              ) : (
+                                <span className="text-white font-medium" title="Simulated (paper-trading) entry">
+                                  {item.blueScore ? item.blueScore.toLocaleString() : 'sim'}
+                                </span>
+                              )}
                             </div>
                             <span className="text-gray-500 text-[9px] block font-sans mt-0.5">{dateStr}</span>
                           </td>
@@ -362,11 +381,9 @@ export default function TransactionLedger({
                                     ? 'text-red-400' 
                                     : 'text-gray-300'
                                 }`}>
-                                  {item.action === 'LIQUIDATION' 
-                                    ? `-${item.size.toLocaleString()} KAS` 
-                                    : isPositive 
-                                    ? `+${item.pnl.toFixed(2)} KAS` 
-                                    : `${item.pnl.toFixed(2)} KAS`}
+                                  {/* Always the real PnL — a liquidation loses at most the
+                                      margin, never the notional size. */}
+                                  {isPositive ? `+${item.pnl.toFixed(2)} KAS` : `${item.pnl.toFixed(2)} KAS`}
                                 </span>
                                 {item.fee > 0 && (
                                   <span className="text-[9px] text-gray-500 font-sans">

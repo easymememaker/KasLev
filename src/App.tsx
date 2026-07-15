@@ -22,6 +22,7 @@ import {
   getActiveNetwork,
   isSupportedNetwork,
   getTraderPositions,
+  getPositionCloseInfo,
   getVaultStats,
   assetId,
   friendlyTxError,
@@ -140,6 +141,41 @@ export default function App() {
   // Legacy wallet state fallback for KDX compatibility
   const [userWallet, setUserWallet] = useState<string>('kaspa:qqzjw5ur7fyq9q7la72shhcfcq02j76uetfque833g2l7e8vmjkt2eqf5egkf');
 
+  // Remember which wallet was connected so a page reload restores the session.
+  // Positions persist in localStorage; without this, the on-chain sync never
+  // re-armed after a reload and liquidated positions looked open forever.
+  useEffect(() => {
+    if (connectedWalletType) localStorage.setItem('kaslev_wallet_type', connectedWalletType);
+    else localStorage.removeItem('kaslev_wallet_type');
+  }, [connectedWalletType]);
+
+  useEffect(() => {
+    if (localStorage.getItem('kaslev_wallet_type') !== 'METAMASK') return;
+    const eth = (window as any).ethereum;
+    if (typeof eth === 'undefined') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        // eth_accounts is silent — no popup; it only succeeds if the site is
+        // still authorized in MetaMask.
+        const accounts: string[] = await eth.request({ method: 'eth_accounts' });
+        if (cancelled || !accounts || accounts.length === 0) return;
+        const addr = accounts[0];
+        setUserL2Address(addr);
+        const virtualL1 = `kaspa:qqzjw5evm${addr.substring(2, 32).toLowerCase()}`;
+        setUserL1Address(virtualL1);
+        setUserWallet(virtualL1);
+        setIsWalletConnected(true);
+        setConnectedWalletType('METAMASK');
+      } catch {
+        /* wallet locked or revoked — user reconnects manually */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // AI Autonomous Trading Agent States
   const [isAiTradeAgentActive, setIsAiTradeAgentActive] = useState<boolean>(false);
   const [aiTradeAgentSettings, setAiTradeAgentSettings] = useState({
@@ -226,6 +262,13 @@ export default function App() {
   // reloads and reflects liquidations done by keepers. Simulated (non
   // `onchain-`) positions are left untouched.
   // ------------------------------------------------------------------
+  // Latest positions, readable inside async sync without re-arming the effect.
+  const positionsRef = useRef<Position[]>(positions);
+  positionsRef.current = positions;
+  // Closure ids already written to the ledger — sync runs every 15s and must not
+  // record the same on-chain close twice.
+  const loggedClosuresRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (!isWalletConnected || connectedWalletType !== 'METAMASK' || !isSupportedNetwork(activeChain)) return;
     let cancelled = false;
@@ -240,14 +283,55 @@ export default function App() {
         );
         if (cancelled) return;
 
+        // Positions that vanished on-chain since last sync were closed OUTSIDE this
+        // UI — usually a keeper liquidation. Write them to the ledger with the real
+        // exit data from the contract's PositionClosed event instead of dropping
+        // them silently.
+        const fetchedIds = new Set(chainPositions.map((cp) => `onchain-${cp.id}`));
+        const vanished = positionsRef.current.filter(
+          (p) => p.id.startsWith('onchain-') && !fetchedIds.has(p.id) && !loggedClosuresRef.current.has(p.id),
+        );
+        for (const pos of vanished) {
+          loggedClosuresRef.current.add(pos.id);
+          const chainId = parseInt(pos.id.replace('onchain-', ''), 10);
+          const info = Number.isNaN(chainId) ? null : await getPositionCloseInfo(chainId);
+          const liquidated = info?.liquidated ?? true;
+          setTradeHistory((prev) => [{
+            id: `hist-${Date.now()}-${pos.id}`,
+            symbol: pos.symbol, type: pos.type,
+            action: liquidated ? 'LIQUIDATION' : 'CLOSE',
+            leverage: pos.leverage, size: pos.size,
+            price: info?.exitPrice ?? pos.currentPrice,
+            pnl: info?.pnlKas ?? pos.pnl,
+            fee: 0,
+            timestamp: Date.now(),
+            txId: info?.txHash,
+            fromAddress: VAULT_ADDRESS, toAddress: userL2Address,
+          }, ...prev]);
+          triggerAlert(
+            liquidated ? 'error' : 'info',
+            liquidated
+              ? `🛑 Position #${chainId} (${pos.leverage}x ${pos.type}) was liquidated on-chain at $${(info?.exitPrice ?? pos.currentPrice).toFixed(6)}.`
+              : `Position #${chainId} was closed on-chain (PnL ${(info?.pnlKas ?? pos.pnl).toFixed(4)} KAS).`,
+          );
+        }
+
         setPositions((prev) => {
           const sim = prev.filter((p) => !p.id.startsWith('onchain-'));
           const mapped: Position[] = chainPositions.map((cp) => {
             const existing = prev.find((p) => p.id === `onchain-${cp.id}`);
+            // Oracle stale -> PnL/liq views revert (null). Keep the last known
+            // values instead of showing $0 liquidation prices and zero PnL.
+            const pnl = cp.pnlKas ?? existing?.pnl ?? 0;
+            const liq = cp.liquidationPrice
+              ?? existing?.liquidationPrice
+              ?? calculateLiquidationPrice(cp.isLong ? 'LONG' : 'SHORT', cp.entryPrice, cp.leverage);
             const notional = cp.marginKas * cp.leverage;
             // Recover the current price implied by the on-chain PnL.
-            const move = notional > 0 ? cp.pnlKas / notional : 0;
-            const currentPrice = cp.entryPrice * (1 + (cp.isLong ? move : -move));
+            const move = notional > 0 ? pnl / notional : 0;
+            const currentPrice = cp.pnlKas !== null
+              ? cp.entryPrice * (1 + (cp.isLong ? move : -move))
+              : existing?.currentPrice ?? cp.entryPrice;
             return {
               id: `onchain-${cp.id}`,
               symbol: cp.symbol,
@@ -256,10 +340,10 @@ export default function App() {
               size: parseFloat(notional.toFixed(2)),
               margin: cp.marginKas,
               entryPrice: cp.entryPrice,
-              liquidationPrice: cp.liquidationPrice,
+              liquidationPrice: parseFloat(liq.toFixed(6)),
               currentPrice,
-              pnl: cp.pnlKas,
-              pnlPercentage: cp.marginKas > 0 ? (cp.pnlKas / cp.marginKas) * 100 : 0,
+              pnl,
+              pnlPercentage: cp.marginKas > 0 ? (pnl / cp.marginKas) * 100 : 0,
               feePaid: cp.marginKas * (getFeePercentage(cp.leverage) / 100),
               timestamp: existing?.timestamp ?? Date.now(),
             };
